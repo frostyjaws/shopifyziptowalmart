@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import random
 import re
+import zipfile
+import os
 from io import BytesIO
 
 st.set_page_config(page_title="Walmart CSV Generator", layout="wide")
@@ -9,7 +11,6 @@ st.title("Walmart CSV Generator from Shopify Export")
 
 uploaded_file = st.file_uploader("Upload your Shopify product export CSV", type="csv")
 
-# Define the 13 official variations and their fixed prices
 fixed_variations = {
     "Newborn White Short Sleeve": 24.99,
     "Newborn White Long Sleeve": 25.99,
@@ -26,7 +27,6 @@ fixed_variations = {
     "6M Natural Short Sleeve": 26.99
 }
 
-# Define static accessory images
 forced_accessory_images = [
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/12efccc074d5a78e78e3e0be1150e85c5302d855_6fa13b1e-4e0d-40d0-ae35-4251523d5e93.jpg?v=1746713345",
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/9db0001144fa518c97c29ab557af269feae90acd_22c6519e-ae87-4fc2-b0e4-35f75dac06e9.jpg?v=1746713345",
@@ -35,7 +35,6 @@ forced_accessory_images = [
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/8c9e801d190d7fcdd5d2cce9576aa8de994f16b5_c659fcfd-9bcf-4f8f-a54e-dd22c94da016.jpg?v=1746713345"
 ]
 
-# Define static key features (bullets)
 key_features = {
     'Key Features 1': '🎨 High-Quality Ink Printing: Vibrant, long-lasting colors thanks to DTG printing — your baby’s outfit stays beautiful wash after wash.',
     'Key Features 2': '🎖️ Proudly Veteran-Owned: Designed by a veteran-owned small business to bring style and heart to your baby’s wardrobe.',
@@ -44,7 +43,6 @@ key_features = {
     'Key Features 5': '📏 Versatile Sizing & Colors: Available in multiple sizes and colors for boys and girls — check the sizing guide for a perfect fit.'
 }
 
-# Static long-form product description
 static_description = """Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit..."""
 
 if uploaded_file:
@@ -52,14 +50,13 @@ if uploaded_file:
     df = df.dropna(subset=['Handle'])
     grouped = df.groupby('Handle')
 
-    all_rows = []
+    all_parents = []
 
     for handle, group in grouped:
         title = group['Title'].iloc[0]
         smart_title = f"{title.split(' - ')[0]} - Baby Boy Girl Clothes Bodysuit Funny Cute"
 
-        images = group[['Image Src', 'Image Position']].dropna()
-        images = images.sort_values(by='Image Position')
+        images = group[['Image Src', 'Image Position']].dropna().sort_values(by='Image Position')
         if images.empty:
             continue
 
@@ -68,7 +65,6 @@ if uploaded_file:
         short_handle = re.sub(r'[^a-zA-Z0-9]', '', handle.lower())[:20]
         parent_sku = f"{short_handle}-Parent-{random_suffix}"
 
-        # Add parent row (no Parent SKU field filled)
         parent_row = {
             'SKU': parent_sku,
             'Product Name': smart_title,
@@ -94,7 +90,7 @@ if uploaded_file:
             'Product Tax Code': '2038710'
         }
         parent_row.update(key_features)
-        all_rows.append(parent_row)
+        rows = [parent_row]
 
         for variation, fixed_price in fixed_variations.items():
             parts = variation.split()
@@ -130,18 +126,23 @@ if uploaded_file:
                 'Product Tax Code': '2038710'
             }
             child_row.update(key_features)
-            all_rows.append(child_row)
+            rows.append(child_row)
 
-    output_df = pd.DataFrame(all_rows)
-    output_df['Price'] = output_df['Price'].astype(str)
+        all_parents.append(pd.DataFrame(rows))
 
-    st.success(f"Processed {len(output_df)} rows across {len(grouped)} products.")
-    st.dataframe(output_df.head(50))
+    # Split into chunks
+    batch_size = 150
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
+        for i in range(0, len(all_parents), batch_size):
+            batch_df = pd.concat(all_parents[i:i + batch_size], ignore_index=True)
+            batch_df['Price'] = batch_df['Price'].astype(str)
+            csv_bytes = batch_df.to_csv(index=False).encode('utf-8')
+            zipf.writestr(f"walmart_upload_part{i//batch_size + 1}.csv", csv_bytes)
 
-    csv = output_df.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="Download Walmart CSV",
-        data=csv,
-        file_name='walmart_upload_ready.csv',
-        mime='text/csv'
+        label="Download Walmart Upload ZIP",
+        data=zip_buffer.getvalue(),
+        file_name="walmart_upload_ready.zip",
+        mime="application/zip"
     )
