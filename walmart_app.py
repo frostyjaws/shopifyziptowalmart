@@ -26,7 +26,7 @@ fixed_variations = {
     "6M Natural Short Sleeve": 26.99
 }
 
-# Define updated static accessory image URLs
+# Define static accessory images
 forced_accessory_images = [
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/12efccc074d5a78e78e3e0be1150e85c5302d855_6fa13b1e-4e0d-40d0-ae35-4251523d5e93.jpg?v=1746713345",
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/9db0001144fa518c97c29ab557af269feae90acd_22c6519e-ae87-4fc2-b0e4-35f75dac06e9.jpg?v=1746713345",
@@ -34,6 +34,28 @@ forced_accessory_images = [
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/2111f30dfd441733c577311e723de977c5c4bdce_73235f99-f321-4496-909e-6806f7ac1478.jpg?v=1746713345",
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/8c9e801d190d7fcdd5d2cce9576aa8de994f16b5_c659fcfd-9bcf-4f8f-a54e-dd22c94da016.jpg?v=1746713345"
 ]
+
+# Define static key features (bullets)
+key_features = {
+    'Key Features 1': '🎨 High-Quality Ink Printing: Vibrant, long-lasting colors thanks to DTG printing — your baby’s outfit stays beautiful wash after wash.',
+    'Key Features 2': '🎖️ Proudly Veteran-Owned: Designed by a veteran-owned small business to bring style and heart to your baby’s wardrobe.',
+    'Key Features 3': '👶 Comfort and Convenience: Soft, breathable cotton and snap closures for cozy wear and easy diaper changes.',
+    'Key Features 4': '🎁 Perfect Baby Shower Gift: Makes a thoughtful gift for new parents — adorable and meaningful.',
+    'Key Features 5': '📏 Versatile Sizing & Colors: Available in multiple sizes and colors for boys and girls — check the sizing guide for a perfect fit.'
+}
+
+# Static long-form product description
+static_description = """Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit, the perfect baby shower gift that will be cherished for years to come. This charming piece of baby clothing is an ideal new baby gift for welcoming a newborn into the world. Whether it's for a baby announcement, a pregnancy reveal, or a special baby shower, this baby Bodysuit is sure to delight.
+
+Our Custom Baby Bodysuit features a playful and cute design, perfect for showcasing your baby's unique personality. Made with love and care, this baby Bodysuit is designed to keep your baby comfortable and stylish. It's an essential item in cute baby clothes, making it a standout piece for any new arrival.
+
+Perfect for both baby boys and girls, this versatile baby Bodysuit is soft, comfortable, and durable, ensuring it can withstand numerous washes. The easy-to-use snaps make changing a breeze, providing convenience for busy parents.
+
+Whether you're looking for a personalized baby Bodysuit, a funny baby Bodysuit, or a cute baby Bodysuit, this Custom Baby Bodysuit has it all. It’s ideal for celebrating the excitement of a new baby, featuring charming and customizable designs. This makes it a fantastic option for funny baby clothes that bring a smile to everyone's face.
+
+Imagine gifting this delightful baby Bodysuit at a baby shower or using it as a memorable baby announcement or pregnancy reveal. It’s perfect for anyone searching for a unique baby gift, announcement baby Bodysuit, or a special new baby Bodysuit. This baby Bodysuit is not just an item of clothing; it’s a keepsake that celebrates the joy and wonder of a new life.
+
+From baby boy clothes to baby girl clothes, this baby Bodysuit is perfect for any newborn. Whether it’s a boho design, a Fathers Day gift, or custom baby clothes, this piece is a wonderful addition to any baby's wardrobe."""
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
@@ -45,7 +67,6 @@ if uploaded_file:
     for handle, group in grouped:
         title = group['Title'].iloc[0]
         smart_title = f"{title.split(' - ')[0]} - Baby Boy Girl Clothes Bodysuit Funny Cute"
-        description = group['Body (HTML)'].iloc[0]
 
         images = group[['Image Src', 'Image Position']].dropna()
         images = images.sort_values(by='Image Position')
@@ -58,10 +79,10 @@ if uploaded_file:
         parent_sku = f"{short_handle}-Parent-{random_suffix}"
 
         # Add parent row
-        all_rows.append({
+        parent_row = {
             'SKU': parent_sku,
             'Product Name': smart_title,
-            'Description': description,
+            'Description': static_description,
             'Brand': 'NOFO VIBES',
             'Price': '',
             'Main Image URL': '',
@@ -78,8 +99,12 @@ if uploaded_file:
             'Country of Origin': 'Imported',
             'Gender': 'Unisex',
             'Age Group': 'Infant',
-            'Manufacturer Part Number': parent_sku
-        })
+            'Manufacturer Part Number': parent_sku,
+            'Fulfillment Lag Time': 2,
+            'Product Tax Code': '2038710'
+        }
+        parent_row.update(key_features)
+        all_rows.append(parent_row)
 
         for variation, fixed_price in fixed_variations.items():
             parts = variation.split()
@@ -90,10 +115,10 @@ if uploaded_file:
             sleeve = ' '.join(parts[2:])
             sku = f"{short_handle}-{size}{color}{sleeve.replace(' ', '')}-{random_suffix}"
 
-            all_rows.append({
+            child_row = {
                 'SKU': sku,
                 'Product Name': smart_title,
-                'Description': description,
+                'Description': static_description,
                 'Brand': 'NOFO VIBES',
                 'Price': fixed_price,
                 'Main Image URL': main_image,
@@ -110,8 +135,12 @@ if uploaded_file:
                 'Country of Origin': 'Imported',
                 'Gender': 'Unisex',
                 'Age Group': 'Infant',
-                'Manufacturer Part Number': sku
-            })
+                'Manufacturer Part Number': sku,
+                'Fulfillment Lag Time': 2,
+                'Product Tax Code': '2038710'
+            }
+            child_row.update(key_features)
+            all_rows.append(child_row)
 
     output_df = pd.DataFrame(all_rows)
     st.success(f"Processed {len(output_df)} rows across {len(grouped)} products.")
@@ -125,4 +154,3 @@ if uploaded_file:
         file_name='walmart_upload_ready.csv',
         mime='text/csv'
     )
-
