@@ -45,7 +45,7 @@ key_features = {
 }
 
 # Static long-form product description
-static_description = """Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit, the perfect baby shower gift that will be cherished for years to come..."""
+static_description = """Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit..."""
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file, low_memory=False)
@@ -68,7 +68,7 @@ if uploaded_file:
         short_handle = re.sub(r'[^a-zA-Z0-9]', '', handle.lower())[:20]
         parent_sku = f"{short_handle}-Parent-{random_suffix}"
 
-        # Add parent row
+        # Add parent row (no Parent SKU field filled)
         parent_row = {
             'SKU': parent_sku,
             'Product Name': smart_title,
@@ -133,12 +133,11 @@ if uploaded_file:
             all_rows.append(child_row)
 
     output_df = pd.DataFrame(all_rows)
-    output_df['Price'] = output_df['Price'].astype(str)  # 🔧 Fix for Arrow serialization
+    output_df['Price'] = output_df['Price'].astype(str)
 
     st.success(f"Processed {len(output_df)} rows across {len(grouped)} products.")
     st.dataframe(output_df.head(50))
 
-    # Download
     csv = output_df.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="Download Walmart CSV",
