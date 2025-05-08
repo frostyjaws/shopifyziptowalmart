@@ -58,11 +58,12 @@ if uploaded_file:
         for _, row in group.iterrows():
             option = row['Option1 Value']
             parts = option.split()
+            if len(parts) < 3 or pd.isna(row['Variant Price']) or not main_image:
+                continue  # Skip if structure is unexpected, price or image is missing
+
             size = parts[0]
             color = parts[1]
             sleeve = ' '.join(parts[2:])
-            if pd.isna(row['Variant Price']) or not main_image:
-                continue  # Skip if price or main image is missing
             price = row['Variant Price']
             sku = f"{short_handle}-{size}{color}{sleeve.replace(' ', '')}-{random_suffix}"
 
@@ -101,4 +102,3 @@ if uploaded_file:
         file_name='walmart_upload_ready.csv',
         mime='text/csv'
     )
-
