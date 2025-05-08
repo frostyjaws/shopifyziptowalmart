@@ -45,20 +45,10 @@ key_features = {
 }
 
 # Static long-form product description
-static_description = """Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit, the perfect baby shower gift that will be cherished for years to come. This charming piece of baby clothing is an ideal new baby gift for welcoming a newborn into the world. Whether it's for a baby announcement, a pregnancy reveal, or a special baby shower, this baby Bodysuit is sure to delight.
-
-Our Custom Baby Bodysuit features a playful and cute design, perfect for showcasing your baby's unique personality. Made with love and care, this baby Bodysuit is designed to keep your baby comfortable and stylish. It's an essential item in cute baby clothes, making it a standout piece for any new arrival.
-
-Perfect for both baby boys and girls, this versatile baby Bodysuit is soft, comfortable, and durable, ensuring it can withstand numerous washes. The easy-to-use snaps make changing a breeze, providing convenience for busy parents.
-
-Whether you're looking for a personalized baby Bodysuit, a funny baby Bodysuit, or a cute baby Bodysuit, this Custom Baby Bodysuit has it all. It’s ideal for celebrating the excitement of a new baby, featuring charming and customizable designs. This makes it a fantastic option for funny baby clothes that bring a smile to everyone's face.
-
-Imagine gifting this delightful baby Bodysuit at a baby shower or using it as a memorable baby announcement or pregnancy reveal. It’s perfect for anyone searching for a unique baby gift, announcement baby Bodysuit, or a special new baby Bodysuit. This baby Bodysuit is not just an item of clothing; it’s a keepsake that celebrates the joy and wonder of a new life.
-
-From baby boy clothes to baby girl clothes, this baby Bodysuit is perfect for any newborn. Whether it’s a boho design, a Fathers Day gift, or custom baby clothes, this piece is a wonderful addition to any baby's wardrobe."""
+static_description = """Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit, the perfect baby shower gift that will be cherished for years to come..."""
 
 if uploaded_file:
-    df = pd.read_csv(uploaded_file)
+    df = pd.read_csv(uploaded_file, low_memory=False)
     df = df.dropna(subset=['Handle'])
     grouped = df.groupby('Handle')
 
@@ -143,6 +133,8 @@ if uploaded_file:
             all_rows.append(child_row)
 
     output_df = pd.DataFrame(all_rows)
+    output_df['Price'] = output_df['Price'].astype(str)  # 🔧 Fix for Arrow serialization
+
     st.success(f"Processed {len(output_df)} rows across {len(grouped)} products.")
     st.dataframe(output_df.head(50))
 
