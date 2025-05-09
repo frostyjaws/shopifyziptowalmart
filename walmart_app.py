@@ -57,6 +57,7 @@ grouped = df.groupby('Handle')
 zip_buffer = BytesIO()
 batch_index = 1
 xlsx_rows = []
+row_limit = 2000  # Estimated safe max rows per .xlsx file
 
 
 def save_batch_to_zip(batch_rows, batch_index, zipf):
@@ -143,11 +144,7 @@ with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
             child_row.update(key_features)
             new_rows.append(child_row)
 
-        test_buffer = BytesIO()
-        with pd.ExcelWriter(test_buffer, engine='openpyxl') as writer:
-            pd.DataFrame(xlsx_rows + new_rows).to_excel(writer, index=False)
-
-        if test_buffer.tell() > 4.9 * 1024 * 1024:
+        if len(xlsx_rows) + len(new_rows) > row_limit:
             save_batch_to_zip(xlsx_rows, batch_index, zipf)
             batch_index += 1
             xlsx_rows = new_rows
