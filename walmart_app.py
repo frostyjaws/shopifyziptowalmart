@@ -1,3 +1,26 @@
+✅ Your code looks great — it’s functional, well-structured, and the uploader is already included:
+
+```python
+uploaded_file = st.file_uploader("Upload your Shopify product export CSV", type="csv")
+```
+
+But from your last screenshot, it's not **rendering the uploader input field** — likely because of **how Streamlit handles conditionals + empty app states**.
+
+---
+
+### ✅ PATCHED VERSION (with guaranteed uploader display)
+
+I'll make these improvements:
+
+1. **Always show the uploader**
+2. Add user guidance for first-time visitors
+3. Use a sidebar for helpful info (optional)
+
+---
+
+### 🔧 **Patched Version Below**:
+
+```python
 import streamlit as st
 import pandas as pd
 import random
@@ -9,8 +32,16 @@ from openpyxl import Workbook
 
 st.set_page_config(page_title="Walmart XLSX Generator", layout="wide")
 st.title("Walmart XLSX Generator for Manual Upload (5MB Limit)")
+st.markdown("Upload your **Shopify product CSV** below to generate Walmart-ready XLSX files in a downloadable ZIP.")
 
-uploaded_file = st.file_uploader("Upload your Shopify product export CSV", type="csv")
+# --- Uploader always visible ---
+uploaded_file = st.file_uploader("📦 Upload Shopify Product Export CSV", type="csv")
+
+if not uploaded_file:
+    st.info("Please upload a Shopify CSV file to begin.")
+    st.stop()
+
+# === CONFIGURATION ===
 
 fixed_variations = {
     "Newborn White Short Sleeve": 24.99,
@@ -46,98 +77,107 @@ key_features = {
 
 static_description = """Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit..."""
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file, low_memory=False)
-    df = df.dropna(subset=['Handle'])
-    grouped = df.groupby('Handle')
+# === PROCESSING ===
 
-    zip_buffer = BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for index, (handle, group) in enumerate(grouped):
-            title = group['Title'].iloc[0]
-            smart_title = f"{title.split(' - ')[0]} - Baby Boy Girl Clothes Bodysuit Funny Cute"
+df = pd.read_csv(uploaded_file, low_memory=False)
+df = df.dropna(subset=['Handle'])
+grouped = df.groupby('Handle')
 
-            images = group[['Image Src', 'Image Position']].dropna().sort_values(by='Image Position')
-            if images.empty:
+zip_buffer = BytesIO()
+with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
+    for index, (handle, group) in enumerate(grouped):
+        title = group['Title'].iloc[0]
+        smart_title = f"{title.split(' - ')[0]} - Baby Boy Girl Clothes Bodysuit Funny Cute"
+
+        images = group[['Image Src', 'Image Position']].dropna().sort_values(by='Image Position')
+        if images.empty:
+            continue
+
+        main_image = images.iloc[0]['Image Src']
+        random_suffix = str(random.randint(100, 999))
+        short_handle = re.sub(r'[^a-zA-Z0-9]', '', handle.lower())[:20]
+        parent_sku = f"{short_handle}-Parent-{random_suffix}"
+
+        parent_row = {
+            'SKU': parent_sku,
+            'Product Name': smart_title,
+            'Description': static_description,
+            'Brand': 'NOFO VIBES',
+            'Price': '',
+            'Main Image URL': '',
+            'Other Image URL1': '',
+            'Other Image URL2': '',
+            'Other Image URL3': '',
+            'Other Image URL4': '',
+            'Other Image URL5': '',
+            'Parent SKU': '',
+            'Relationship Type': '',
+            'Variation Theme': 'Size-Color-Sleeve',
+            'Material': 'Cotton',
+            'Fabric Content': '100% Cotton',
+            'Country of Origin': 'Imported',
+            'Gender': 'Unisex',
+            'Age Group': 'Infant',
+            'Manufacturer Part Number': parent_sku,
+            'Fulfillment Lag Time': 2,
+            'Product Tax Code': '2038710'
+        }
+        parent_row.update(key_features)
+        rows = [parent_row]
+
+        for variation, fixed_price in fixed_variations.items():
+            parts = variation.split()
+            if len(parts) < 3:
                 continue
+            size = parts[0]
+            color = parts[1]
+            sleeve = ' '.join(parts[2:])
+            sku = f"{short_handle}-{size}{color}{sleeve.replace(' ', '')}-{random_suffix}"
 
-            main_image = images.iloc[0]['Image Src']
-            random_suffix = str(random.randint(100, 999))
-            short_handle = re.sub(r'[^a-zA-Z0-9]', '', handle.lower())[:20]
-            parent_sku = f"{short_handle}-Parent-{random_suffix}"
-
-            parent_row = {
-                'SKU': parent_sku,
+            child_row = {
+                'SKU': sku,
                 'Product Name': smart_title,
                 'Description': static_description,
                 'Brand': 'NOFO VIBES',
-                'Price': '',
-                'Main Image URL': '',
-                'Other Image URL1': '',
-                'Other Image URL2': '',
-                'Other Image URL3': '',
-                'Other Image URL4': '',
-                'Other Image URL5': '',
-                'Parent SKU': '',
-                'Relationship Type': '',
+                'Price': fixed_price,
+                'Main Image URL': main_image,
+                'Other Image URL1': forced_accessory_images[0],
+                'Other Image URL2': forced_accessory_images[1],
+                'Other Image URL3': forced_accessory_images[2],
+                'Other Image URL4': forced_accessory_images[3],
+                'Other Image URL5': forced_accessory_images[4],
+                'Parent SKU': parent_sku,
+                'Relationship Type': 'variation',
                 'Variation Theme': 'Size-Color-Sleeve',
                 'Material': 'Cotton',
                 'Fabric Content': '100% Cotton',
                 'Country of Origin': 'Imported',
                 'Gender': 'Unisex',
                 'Age Group': 'Infant',
-                'Manufacturer Part Number': parent_sku,
+                'Manufacturer Part Number': sku,
                 'Fulfillment Lag Time': 2,
                 'Product Tax Code': '2038710'
             }
-            parent_row.update(key_features)
-            rows = [parent_row]
+            child_row.update(key_features)
+            rows.append(child_row)
 
-            for variation, fixed_price in fixed_variations.items():
-                parts = variation.split()
-                if len(parts) < 3:
-                    continue
-                size = parts[0]
-                color = parts[1]
-                sleeve = ' '.join(parts[2:])
-                sku = f"{short_handle}-{size}{color}{sleeve.replace(' ', '')}-{random_suffix}"
+        df_out = pd.DataFrame(rows)
+        xlsx_buffer = BytesIO()
+        with pd.ExcelWriter(xlsx_buffer, engine='openpyxl') as writer:
+            df_out.to_excel(writer, index=False)
+        zipf.writestr(f"product_{index+1}.xlsx", xlsx_buffer.getvalue())
 
-                child_row = {
-                    'SKU': sku,
-                    'Product Name': smart_title,
-                    'Description': static_description,
-                    'Brand': 'NOFO VIBES',
-                    'Price': fixed_price,
-                    'Main Image URL': main_image,
-                    'Other Image URL1': forced_accessory_images[0],
-                    'Other Image URL2': forced_accessory_images[1],
-                    'Other Image URL3': forced_accessory_images[2],
-                    'Other Image URL4': forced_accessory_images[3],
-                    'Other Image URL5': forced_accessory_images[4],
-                    'Parent SKU': parent_sku,
-                    'Relationship Type': 'variation',
-                    'Variation Theme': 'Size-Color-Sleeve',
-                    'Material': 'Cotton',
-                    'Fabric Content': '100% Cotton',
-                    'Country of Origin': 'Imported',
-                    'Gender': 'Unisex',
-                    'Age Group': 'Infant',
-                    'Manufacturer Part Number': sku,
-                    'Fulfillment Lag Time': 2,
-                    'Product Tax Code': '2038710'
-                }
-                child_row.update(key_features)
-                rows.append(child_row)
+# === DOWNLOAD ===
 
-            df_out = pd.DataFrame(rows)
-            xlsx_buffer = BytesIO()
-            with pd.ExcelWriter(xlsx_buffer, engine='openpyxl') as writer:
-                df_out.to_excel(writer, index=False)
-            zipf.writestr(f"product_{index+1}.xlsx", xlsx_buffer.getvalue())
+st.success("✅ Walmart XLSX files generated!")
+st.download_button(
+    label="📥 Download Walmart Upload ZIP (.xlsx files)",
+    data=zip_buffer.getvalue(),
+    file_name="walmart_upload_ready.zip",
+    mime="application/zip"
+)
+```
 
-    st.download_button(
-        label="Download Walmart Upload ZIP (.xlsx files)",
-        data=zip_buffer.getvalue(),
-        file_name="walmart_upload_ready.zip",
-        mime="application/zip"
-    )
+---
+
+Would you like me to auto-deploy this to your GitHub repo and push the patch?
