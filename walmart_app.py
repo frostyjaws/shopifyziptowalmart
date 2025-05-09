@@ -1,47 +1,20 @@
-✅ Your code looks great — it’s functional, well-structured, and the uploader is already included:
-
-```python
-uploaded_file = st.file_uploader("Upload your Shopify product export CSV", type="csv")
-```
-
-But from your last screenshot, it's not **rendering the uploader input field** — likely because of **how Streamlit handles conditionals + empty app states**.
-
----
-
-### ✅ PATCHED VERSION (with guaranteed uploader display)
-
-I'll make these improvements:
-
-1. **Always show the uploader**
-2. Add user guidance for first-time visitors
-3. Use a sidebar for helpful info (optional)
-
----
-
-### 🔧 **Patched Version Below**:
-
-```python
 import streamlit as st
 import pandas as pd
 import random
 import re
 import zipfile
-import os
 from io import BytesIO
 from openpyxl import Workbook
 
 st.set_page_config(page_title="Walmart XLSX Generator", layout="wide")
 st.title("Walmart XLSX Generator for Manual Upload (5MB Limit)")
-st.markdown("Upload your **Shopify product CSV** below to generate Walmart-ready XLSX files in a downloadable ZIP.")
+st.markdown("Upload your Shopify product CSV below to generate Walmart-ready XLSX files in a downloadable ZIP.")
 
-# --- Uploader always visible ---
-uploaded_file = st.file_uploader("📦 Upload Shopify Product Export CSV", type="csv")
+uploaded_file = st.file_uploader("Upload your Shopify product export CSV", type="csv")
 
 if not uploaded_file:
     st.info("Please upload a Shopify CSV file to begin.")
     st.stop()
-
-# === CONFIGURATION ===
 
 fixed_variations = {
     "Newborn White Short Sleeve": 24.99,
@@ -68,16 +41,14 @@ forced_accessory_images = [
 ]
 
 key_features = {
-    'Key Features 1': '🎨 High-Quality Ink Printing: Vibrant, long-lasting colors thanks to DTG printing — your baby’s outfit stays beautiful wash after wash.',
-    'Key Features 2': '🎖️ Proudly Veteran-Owned: Designed by a veteran-owned small business to bring style and heart to your baby’s wardrobe.',
-    'Key Features 3': '👶 Comfort and Convenience: Soft, breathable cotton and snap closures for cozy wear and easy diaper changes.',
-    'Key Features 4': '🎁 Perfect Baby Shower Gift: Makes a thoughtful gift for new parents — adorable and meaningful.',
-    'Key Features 5': '📏 Versatile Sizing & Colors: Available in multiple sizes and colors for boys and girls — check the sizing guide for a perfect fit.'
+    'Key Features 1': 'High-Quality Ink Printing: Vibrant, long-lasting colors thanks to DTG printing.',
+    'Key Features 2': 'Proudly Veteran-Owned: Designed by a veteran-owned small business.',
+    'Key Features 3': 'Comfort and Convenience: Soft cotton and snap closures for easy diaper changes.',
+    'Key Features 4': 'Perfect Baby Shower Gift: Adorable and meaningful.',
+    'Key Features 5': 'Versatile Sizing & Colors: Multiple options for boys and girls.'
 }
 
-static_description = """Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit..."""
-
-# === PROCESSING ===
+static_description = "Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit..."
 
 df = pd.read_csv(uploaded_file, low_memory=False)
 df = df.dropna(subset=['Handle'])
@@ -167,17 +138,10 @@ with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
             df_out.to_excel(writer, index=False)
         zipf.writestr(f"product_{index+1}.xlsx", xlsx_buffer.getvalue())
 
-# === DOWNLOAD ===
-
-st.success("✅ Walmart XLSX files generated!")
+st.success("Walmart XLSX files generated successfully.")
 st.download_button(
-    label="📥 Download Walmart Upload ZIP (.xlsx files)",
+    label="Download Walmart Upload ZIP (.xlsx files)",
     data=zip_buffer.getvalue(),
     file_name="walmart_upload_ready.zip",
     mime="application/zip"
 )
-```
-
----
-
-Would you like me to auto-deploy this to your GitHub repo and push the patch?
