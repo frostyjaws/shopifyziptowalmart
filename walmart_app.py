@@ -1,28 +1,26 @@
 
 import pandas as pd
 import xml.etree.ElementTree as ET
+import requests
 import re
 import random
+from datetime import datetime
 
-# === SETTINGS ===
-SHOPIFY_CSV_PATH = "products_export.csv"
+# === WALMART CREDENTIALS ===
+CLIENT_ID = "8206856f-c686-489f-b165-aa2126817d7c"
+CLIENT_SECRET = "APzv6aIPN_ss3AzSFPPTmprRanVeHtacgjIXguk99PqwJCgKx9OBDDVuPBZ8kmr1jh2BCGpq2pLSTZDeSDg91Oo"
 
 # === STATIC VALUES ===
+SHOPIFY_CSV_PATH = "products_export.csv"
 BRAND = "NOFO VIBES"
 FULFILLMENT_LAG = "2"
 PRODUCT_TYPE = "Clothing"
 GTIN_PLACEHOLDER = "000000000000"
 IS_PREORDER = "No"
+WALMART_FEED_URL = "https://marketplace.walmartapis.com/v3/feeds?feedType=item"
 
-# === STATIC DESCRIPTIONS ===
 STATIC_DESCRIPTION = """
-<p>Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit, the perfect baby shower gift that will be cherished for years to come. This charming piece of baby clothing is an ideal new baby gift for welcoming a newborn into the world. Whether it's for a baby announcement, a pregnancy reveal, or a special baby shower, this baby bodysuit is sure to delight.</p>
-<p>Our Custom Baby Bodysuit features a playful and cute design, perfect for showcasing your baby's unique personality. Made with love and care, this baby bodysuit is designed to keep your baby comfortable and stylish. It's an essential item in cute baby clothes, making it a standout piece for any new arrival.</p>
-<p>Perfect for both baby boys and girls, this versatile baby bodysuit is soft, comfortable, and durable, ensuring it can withstand numerous washes. The easy-to-use snaps make changing a breeze, providing convenience for busy parents.</p>
-<p>Whether you're looking for a personalized baby bodysuit, a funny baby bodysuit, or a cute baby bodysuit, this Custom Baby Bodysuit has it all. It’s ideal for celebrating the excitement of a new baby, featuring charming and customizable designs. This makes it a fantastic option for funny baby clothes that bring a smile to everyone's face.</p>
-<p>Imagine gifting this delightful baby bodysuit at a baby shower or using it as a memorable baby announcement or pregnancy reveal. It’s perfect for anyone searching for a unique baby gift, announcement baby bodysuit, or a special new baby bodysuit. This baby bodysuit is not just an item of clothing; it’s a keepsake that celebrates the joy and wonder of a new life.</p>
-<p>From baby boy clothes to baby girl clothes, this baby bodysuit is perfect for any newborn. Whether it’s a boho design, a Fathers Day gift, or custom baby clothes, this piece is a wonderful addition to any baby's wardrobe.</p>
-<p>Get this Custom Baby Bodysuit today and let your little one showcase their personality in the cutest way possible. It's the ideal gift for a new baby, perfect for any occasion from baby showers to baby announcements. Celebrate the joy of a new life with this charming and meaningful baby bodysuit that will be cherished for years to come.</p>
+<p>Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit, the perfect baby shower gift that will be cherished for years to come. This charming piece of baby clothing is an ideal new baby gift for welcoming a newborn into the world...</p>
 """
 
 BULLET_POINTS = [
@@ -41,7 +39,6 @@ FORCED_IMAGES = [
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/8c9e801d190d7fcdd5d2cce9576aa8de.jpg"
 ]
 
-# === VARIATION MAP FROM SHOPIFY `Option1 Value` ===
 variation_map = {
     "Newborn White Short Sleeve": "Newborn White Short Sleeve",
     "Newborn Natural Short Sleeve": "Newborn Natural Short Sleeve",
@@ -84,6 +81,8 @@ def build_walmart_xml(shopify_df):
             except ValueError:
                 continue
             price = row.get("Variant Price", 0)
+            quantity = int(float(row.get("Variant Inventory Qty", 1)))
+
             short_handle = re.sub(r'[^a-zA-Z0-9]', '', handle.lower())[:20]
             sku = f"{short_handle}-{size}{color}{sleeve.replace(' ', '')}-{random.randint(100,999)}"
 
@@ -105,13 +104,50 @@ def build_walmart_xml(shopify_df):
             ET.SubElement(item, "swatchImageUrl").text = main_image
             ET.SubElement(item, "IsPreorder").text = IS_PREORDER
             ET.SubElement(item, "productType").text = PRODUCT_TYPE
+            ET.SubElement(item, "quantity").text = str(quantity)
 
     return ET.tostring(root, encoding='utf-8', method='xml').decode('utf-8')
 
+def get_access_token():
+    url = "https://marketplace.walmartapis.com/v3/token"
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    data = {"grant_type": "client_credentials"}
+    response = requests.post(url, headers=headers, data=data, auth=(CLIENT_ID, CLIENT_SECRET))
+    response.raise_for_status()
+    return response.json()["access_token"]
+
+def submit_feed(xml_data, token):
+    headers = {
+        "WM_SVC.NAME": "Walmart Marketplace",
+        "WM_QOS.CORRELATION_ID": f"submit-{random.randint(1000,9999)}",
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/xml",
+        "Content-Type": "application/xml"
+    }
+    response = requests.post(WALMART_FEED_URL, headers=headers, data=xml_data)
+    response.raise_for_status()
+    return response.text
+
 if __name__ == "__main__":
+    print("📥 Reading Shopify CSV...")
     shopify_df = pd.read_csv(SHOPIFY_CSV_PATH)
     shopify_df = shopify_df.dropna(subset=["Handle"])
+
+    print("🧠 Generating Walmart XML with inventory...")
     xml_output = build_walmart_xml(shopify_df)
-    with open("walmart_product_feed.xml", "w", encoding="utf-8") as f:
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    xml_filename = f"walmart_feed_{timestamp}.xml"
+    with open(xml_filename, "w", encoding="utf-8") as f:
         f.write(xml_output)
-    print("✅ XML feed generated: walmart_product_feed.xml")
+    print(f"✅ XML feed saved: {xml_filename}")
+
+    print("🔐 Authenticating with Walmart...")
+    token = get_access_token()
+    print("✅ Authenticated!")
+
+    print("📤 Submitting feed to Walmart...")
+    response = submit_feed(xml_output, token)
+    print("✅ Feed submitted successfully!")
+    print("📦 Walmart Response:")
+    print(response)
