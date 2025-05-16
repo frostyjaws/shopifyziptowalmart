@@ -1,5 +1,4 @@
-# Writing full advanced script into the saved file
-full_script = '''
+
 import pandas as pd
 import xml.etree.ElementTree as ET
 import requests
@@ -172,8 +171,3 @@ if __name__ == "__main__":
         print(response)
     else:
         print("⚠️ Please use one of: --run, --dry-run, or --track-feed FEED_ID")
-'''
-
-# Write the final content into the script file
-with open("/mnt/data/auto_walmart_uploader_advanced.py", "w") as f:
-    f.write(full_script)
