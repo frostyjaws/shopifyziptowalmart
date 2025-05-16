@@ -1,3 +1,4 @@
+
 import pandas as pd
 import xml.etree.ElementTree as ET
 import re
@@ -40,31 +41,22 @@ FORCED_IMAGES = [
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/8c9e801d190d7fcdd5d2cce9576aa8de.jpg"
 ]
 
+# === VARIATION MAP FROM SHOPIFY `Option1 Value` ===
 variation_map = {
-    ("Newborn", "White", "Short Sleeve"): "Newborn White Short Sleeve",
-    ("Newborn", "White", "Long Sleeve"): "Newborn White Long Sleeve",
-    ("Newborn", "Natural", "Short Sleeve"): "Newborn (0-3M) Natural Short Sleeve",
-    ("0-3M", "White", "Short Sleeve"): "0-3M White Short Sleeve",
-    ("0-3M", "White", "Long Sleeve"): "0-3M White Long Sleeve",
-    ("0-3M", "Pink", "Short Sleeve"): "0-3M Pink Short Sleeve",
-    ("0-3M", "Blue", "Short Sleeve"): "0-3M Blue Short Sleeve",
-    ("3-6M", "White", "Short Sleeve"): "3-6M White Short Sleeve",
-    ("3-6M", "White", "Long Sleeve"): "3-6M White Long Sleeve",
-    ("3-6M", "Pink", "Short Sleeve"): "3-6M Pink Short Sleeve",
-    ("3-6M", "Blue", "Short Sleeve"): "3-6M Blue Short Sleeve",
-    ("6-9M", "White", "Short Sleeve"): "6-9M White Short Sleeve",
-    ("6M", "Natural", "Short Sleeve"): "6M Natural Short Sleeve",
-    ("12M", "White", "Short Sleeve"): "12M White Short Sleeve",
-    ("12M", "White", "Long Sleeve"): "12M White Long Sleeve",
-    ("12M", "Natural", "Short Sleeve"): "12M Natural Short Sleeve",
-    ("12M", "Pink", "Short Sleeve"): "12M Pink Short Sleeve",
-    ("12M", "Blue", "Short Sleeve"): "12M Blue Short Sleeve",
-    ("18M", "White", "Short Sleeve"): "18M White Short Sleeve",
-    ("18M", "White", "Long Sleeve"): "18M White Long Sleeve",
-    ("18M", "Natural", "Short Sleeve"): "18M Natural Short Sleeve",
-    ("24M", "White", "Short Sleeve"): "24M White Short Sleeve",
-    ("24M", "White", "Long Sleeve"): "24M White Long Sleeve",
-    ("24M", "Natural", "Short Sleeve"): "24M Natural Short Sleeve",
+    "Newborn White Short Sleeve": "Newborn White Short Sleeve",
+    "Newborn Natural Short Sleeve": "Newborn Natural Short Sleeve",
+    "Newborn White Long Sleeve": "Newborn White Long Sleeve",
+    "0-3M White Long Sleeve": "0-3M White Long Sleeve",
+    "3-6M White Long Sleeve": "3-6M White Long Sleeve",
+    "0-3M White Short Sleeve": "0-3M White Short Sleeve",
+    "0-3M Pink Short Sleeve": "0-3M Pink Short Sleeve",
+    "0-3M Blue Short Sleeve": "0-3M Blue Short Sleeve",
+    "3-6M White Short Sleeve": "3-6M White Short Sleeve",
+    "3-6M Pink Short Sleeve": "3-6M Pink Short Sleeve",
+    "3-6M Blue Short Sleeve": "3-6M Blue Short Sleeve",
+    "6M Natural Short Sleeve": "6M Natural Short Sleeve",
+    "6-9M White Short Sleeve": "6-9M White Short Sleeve",
+    "12M White Short Sleeve": "12M White Short Sleeve",
 }
 
 def build_walmart_xml(shopify_df):
@@ -83,15 +75,15 @@ def build_walmart_xml(shopify_df):
         variant_group_id = re.sub(r'[^a-zA-Z0-9]', '', handle.lower())[:20]
 
         for _, row in group.iterrows():
-            size = str(row.get("Option1 Value", "")).strip()
-            color = str(row.get("Option2 Value", "")).strip()
-            sleeve = str(row.get("Option3 Value", "")).strip()
-            price = row.get("Variant Price", 0)
-
-            mapped = variation_map.get((size, color, sleeve))
+            raw_var = str(row.get("Option1 Value", "")).strip()
+            mapped = variation_map.get(raw_var)
             if not mapped:
                 continue
-
+            try:
+                size, color, sleeve = mapped.split(" ", 2)
+            except ValueError:
+                continue
+            price = row.get("Variant Price", 0)
             short_handle = re.sub(r'[^a-zA-Z0-9]', '', handle.lower())[:20]
             sku = f"{short_handle}-{size}{color}{sleeve.replace(' ', '')}-{random.randint(100,999)}"
 
