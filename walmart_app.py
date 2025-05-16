@@ -2,20 +2,44 @@ import streamlit as st
 import pandas as pd
 import random
 import re
-import zipfile
+import requests
+import xml.etree.ElementTree as ET
 from io import BytesIO
-from openpyxl import Workbook
 
-st.set_page_config(page_title="Walmart XLSX Generator", layout="wide")
-st.title("Walmart XLSX Generator for Manual Upload (5MB Limit)")
-st.markdown("Upload your Shopify product CSV below to generate Walmart-ready XLSX files in a downloadable ZIP.")
+# === WALMART API CREDENTIALS ===
+CLIENT_ID = st.secrets["WALMART_CLIENT_ID"]
+CLIENT_SECRET = st.secrets["WALMART_CLIENT_SECRET"]
 
-uploaded_file = st.file_uploader("Upload your Shopify product export CSV", type="csv")
+# === UI SETUP ===
+st.set_page_config(page_title="Walmart API Uploader", layout="wide")
+st.title("Walmart Direct API Product Uploader")
+st.markdown("Upload your Shopify CSV file. We'll format and push your products directly to Walmart via API.")
 
+# === FILE UPLOAD ===
+uploaded_file = st.file_uploader("Upload your Shopify CSV", type="csv")
 if not uploaded_file:
-    st.info("Please upload a Shopify CSV file to begin.")
     st.stop()
 
+# === AUTH ===
+@st.cache_data(ttl=300)
+def get_walmart_access_token():
+    url = "https://marketplace.walmartapis.com/v3/token"
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json"
+    }
+    data = {
+        "grant_type": "client_credentials"
+    }
+    r = requests.post(url, headers=headers, data=data, auth=(CLIENT_ID, CLIENT_SECRET))
+    if r.status_code != 200:
+        st.error("Failed to authenticate with Walmart API.")
+        st.stop()
+    return r.json()["access_token"]
+
+access_token = get_walmart_access_token()
+
+# === SETUP ===
 fixed_variations = {
     "Newborn White Short Sleeve": 24.99,
     "Newborn White Long Sleeve": 25.99,
@@ -40,124 +64,100 @@ forced_accessory_images = [
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/8c9e801d190d7fcdd5d2cce9576aa8de994f16b5_c659fcfd-9bcf-4f8f-a54e-dd22c94da016.jpg?v=1746713345"
 ]
 
-key_features = {
-    'Key Features 1': 'High-Quality Ink Printing: Vibrant, long-lasting colors thanks to DTG printing.',
-    'Key Features 2': 'Proudly Veteran-Owned: Designed by a veteran-owned small business.',
-    'Key Features 3': 'Comfort and Convenience: Soft cotton and snap closures for easy diaper changes.',
-    'Key Features 4': 'Perfect Baby Shower Gift: Adorable and meaningful.',
-    'Key Features 5': 'Versatile Sizing & Colors: Multiple options for boys and girls.'
-}
+key_features = [
+    "High-Quality Ink Printing: Vibrant, long-lasting colors thanks to DTG printing.",
+    "Proudly Veteran-Owned: Designed by a veteran-owned small business.",
+    "Comfort and Convenience: Soft cotton and snap closures for easy diaper changes.",
+    "Perfect Baby Shower Gift: Adorable and meaningful.",
+    "Versatile Sizing & Colors: Multiple options for boys and girls."
+]
 
 static_description = "Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit..."
 
+# === DATA PROCESSING ===
 df = pd.read_csv(uploaded_file, low_memory=False)
 df = df.dropna(subset=['Handle'])
 grouped = df.groupby('Handle')
 
-zip_buffer = BytesIO()
-batch_index = 1
-xlsx_rows = []
-row_limit = 2000  # Estimated safe max rows per .xlsx file
+# === FEED XML GENERATOR ===
+def build_walmart_item_feed(grouped):
+    ns = "http://walmart.com/"
+    ET.register_namespace("", ns)
+    root = ET.Element("{%s}ItemFeed" % ns)
 
-
-def save_batch_to_zip(batch_rows, batch_index, zipf):
-    temp_df = pd.DataFrame(batch_rows)
-    batch_xlsx = BytesIO()
-    with pd.ExcelWriter(batch_xlsx, engine='openpyxl') as writer:
-        temp_df.to_excel(writer, index=False)
-    zipf.writestr(f"products_batch_{batch_index}.xlsx", batch_xlsx.getvalue())
-
-
-with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-    for index, (handle, group) in enumerate(grouped):
+    for handle, group in grouped:
         title = group['Title'].iloc[0]
         smart_title = f"{title.split(' - ')[0]} - Baby Boy Girl Clothes Bodysuit Funny Cute"
-
         images = group[['Image Src', 'Image Position']].dropna().sort_values(by='Image Position')
         if images.empty:
             continue
 
         main_image = images.iloc[0]['Image Src']
-        random_suffix = str(random.randint(100, 999))
         short_handle = re.sub(r'[^a-zA-Z0-9]', '', handle.lower())[:20]
-        parent_sku = f"{short_handle}-Parent-{random_suffix}"
+        parent_sku = f"{short_handle}-Parent-{random.randint(100,999)}"
 
-        parent_row = {
-            'SKU': parent_sku,
-            'Product Name': smart_title,
-            'Description': static_description,
-            'Brand': 'NOFO VIBES',
-            'Price': '',
-            'Main Image URL': '',
-            'Other Image URL1': '',
-            'Other Image URL2': '',
-            'Other Image URL3': '',
-            'Other Image URL4': '',
-            'Other Image URL5': '',
-            'Parent SKU': '',
-            'Relationship Type': '',
-            'Variation Theme': 'Size-Color-Sleeve',
-            'Material': 'Cotton',
-            'Fabric Content': '100% Cotton',
-            'Country of Origin': 'Imported',
-            'Gender': 'Unisex',
-            'Age Group': 'Infant',
-            'Manufacturer Part Number': parent_sku,
-            'Fulfillment Lag Time': 2,
-            'Product Tax Code': '2038710'
-        }
-        parent_row.update(key_features)
-        new_rows = [parent_row]
-
-        for variation, fixed_price in fixed_variations.items():
+        for variation, price in fixed_variations.items():
             parts = variation.split()
             if len(parts) < 3:
                 continue
             size = parts[0]
             color = parts[1]
             sleeve = ' '.join(parts[2:])
-            sku = f"{short_handle}-{size}{color}{sleeve.replace(' ', '')}-{random_suffix}"
-            child_row = {
-                'SKU': sku,
-                'Product Name': smart_title,
-                'Description': static_description,
-                'Brand': 'NOFO VIBES',
-                'Price': fixed_price,
-                'Main Image URL': main_image,
-                'Other Image URL1': forced_accessory_images[0],
-                'Other Image URL2': forced_accessory_images[1],
-                'Other Image URL3': forced_accessory_images[2],
-                'Other Image URL4': forced_accessory_images[3],
-                'Other Image URL5': forced_accessory_images[4],
-                'Parent SKU': parent_sku,
-                'Relationship Type': 'variation',
-                'Variation Theme': 'Size-Color-Sleeve',
-                'Material': 'Cotton',
-                'Fabric Content': '100% Cotton',
-                'Country of Origin': 'Imported',
-                'Gender': 'Unisex',
-                'Age Group': 'Infant',
-                'Manufacturer Part Number': sku,
-                'Fulfillment Lag Time': 2,
-                'Product Tax Code': '2038710'
-            }
-            child_row.update(key_features)
-            new_rows.append(child_row)
+            child_sku = f"{short_handle}-{size}{color}{sleeve.replace(' ','')}-{random.randint(100,999)}"
 
-        if len(xlsx_rows) + len(new_rows) > row_limit:
-            save_batch_to_zip(xlsx_rows, batch_index, zipf)
-            batch_index += 1
-            xlsx_rows = new_rows
+            item = ET.SubElement(root, "Item")
+            ET.SubElement(item, "sku").text = child_sku
+            ET.SubElement(item, "productName").text = smart_title
+            ET.SubElement(item, "longDescription").text = static_description
+            ET.SubElement(item, "brand").text = "NOFO VIBES"
+            ET.SubElement(item, "price").text = f"{price:.2f}"
+            ET.SubElement(item, "mainImageUrl").text = main_image
+
+            for i, img in enumerate(forced_accessory_images):
+                ET.SubElement(item, f"additionalImageUrl{i+1}").text = img
+
+            desc = ET.SubElement(item, "productIdentifiers")
+            ET.SubElement(desc, "productIdType").text = "GTIN"
+            ET.SubElement(desc, "productId").text = "000000000000"  # Use real or exempt value
+
+            ET.SubElement(item, "category").text = "Clothing"
+            ET.SubElement(item, "manufacturer").text = "NOFO VIBES"
+            ET.SubElement(item, "manufacturerPartNumber").text = child_sku
+            ET.SubElement(item, "fulfillmentLagTime").text = "2"
+            ET.SubElement(item, "mainImageAltText").text = "Funny baby onesie design"
+
+            kf = ET.SubElement(item, "keyFeatures")
+            for feature in key_features:
+                ET.SubElement(kf, "keyFeature").text = feature
+
+            attrs = ET.SubElement(item, "additionalProductAttributes")
+            ET.SubElement(attrs, "additionalProductAttribute", {"name": "Sleeve"}).text = sleeve
+            ET.SubElement(attrs, "additionalProductAttribute", {"name": "Size"}).text = size
+            ET.SubElement(attrs, "additionalProductAttribute", {"name": "Color"}).text = color
+
+    return ET.tostring(root, encoding='utf-8', method='xml')
+
+# === SUBMIT TO WALMART ===
+def submit_to_walmart(xml_data, access_token):
+    headers = {
+        "WM_SVC.NAME": "Walmart Marketplace",
+        "WM_QOS.CORRELATION_ID": "submit-" + str(random.randint(1000,9999)),
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/xml",
+        "Content-Type": "application/xml"
+    }
+
+    url = "https://marketplace.walmartapis.com/v3/feeds?feedType=item"
+    response = requests.post(url, headers=headers, data=xml_data)
+    return response.status_code, response.text
+
+# === RUN PROCESS ===
+if st.button("Submit to Walmart API"):
+    with st.spinner("Building Walmart feed and uploading..."):
+        xml_feed = build_walmart_item_feed(grouped)
+        status, result = submit_to_walmart(xml_feed, access_token)
+
+        if status == 202:
+            st.success("✅ Walmart feed submitted successfully.")
         else:
-            xlsx_rows.extend(new_rows)
-
-    if xlsx_rows:
-        save_batch_to_zip(xlsx_rows, batch_index, zipf)
-
-st.success("Walmart XLSX files generated successfully.")
-st.download_button(
-    label="Download Walmart Upload ZIP (.xlsx files)",
-    data=zip_buffer.getvalue(),
-    file_name="walmart_upload_ready.zip",
-    mime="application/zip"
-)
+            st.error(f"❌ Submission failed: {status}\n\n{result}")
