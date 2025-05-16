@@ -1,86 +1,74 @@
-import streamlit as st
 import pandas as pd
-import random
-import re
-import requests
 import xml.etree.ElementTree as ET
-from io import BytesIO
+import re
+import random
 
-# === WALMART API CREDENTIALS ===
-CLIENT_ID = st.secrets["WALMART_CLIENT_ID"]
-CLIENT_SECRET = st.secrets["WALMART_CLIENT_SECRET"]
+# === SETTINGS ===
+SHOPIFY_CSV_PATH = "products_export.csv"
 
-# === UI SETUP ===
-st.set_page_config(page_title="Walmart API Uploader", layout="wide")
-st.title("Walmart Direct API Product Uploader")
-st.markdown("Upload your Shopify CSV file. We'll format and push your products directly to Walmart via API.")
+# === STATIC VALUES ===
+BRAND = "NOFO VIBES"
+FULFILLMENT_LAG = "2"
+PRODUCT_TYPE = "Clothing"
+GTIN_PLACEHOLDER = "000000000000"
+IS_PREORDER = "No"
 
-# === FILE UPLOAD ===
-uploaded_file = st.file_uploader("Upload your Shopify CSV", type="csv")
-if not uploaded_file:
-    st.stop()
+# === STATIC DESCRIPTIONS ===
+STATIC_DESCRIPTION = """
+<p>Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit, the perfect baby shower gift that will be cherished for years to come. This charming piece of baby clothing is an ideal new baby gift for welcoming a newborn into the world. Whether it's for a baby announcement, a pregnancy reveal, or a special baby shower, this baby bodysuit is sure to delight.</p>
+<p>Our Custom Baby Bodysuit features a playful and cute design, perfect for showcasing your baby's unique personality. Made with love and care, this baby bodysuit is designed to keep your baby comfortable and stylish. It's an essential item in cute baby clothes, making it a standout piece for any new arrival.</p>
+<p>Perfect for both baby boys and girls, this versatile baby bodysuit is soft, comfortable, and durable, ensuring it can withstand numerous washes. The easy-to-use snaps make changing a breeze, providing convenience for busy parents.</p>
+<p>Whether you're looking for a personalized baby bodysuit, a funny baby bodysuit, or a cute baby bodysuit, this Custom Baby Bodysuit has it all. It’s ideal for celebrating the excitement of a new baby, featuring charming and customizable designs. This makes it a fantastic option for funny baby clothes that bring a smile to everyone's face.</p>
+<p>Imagine gifting this delightful baby bodysuit at a baby shower or using it as a memorable baby announcement or pregnancy reveal. It’s perfect for anyone searching for a unique baby gift, announcement baby bodysuit, or a special new baby bodysuit. This baby bodysuit is not just an item of clothing; it’s a keepsake that celebrates the joy and wonder of a new life.</p>
+<p>From baby boy clothes to baby girl clothes, this baby bodysuit is perfect for any newborn. Whether it’s a boho design, a Fathers Day gift, or custom baby clothes, this piece is a wonderful addition to any baby's wardrobe.</p>
+<p>Get this Custom Baby Bodysuit today and let your little one showcase their personality in the cutest way possible. It's the ideal gift for a new baby, perfect for any occasion from baby showers to baby announcements. Celebrate the joy of a new life with this charming and meaningful baby bodysuit that will be cherished for years to come.</p>
+"""
 
-# === AUTH ===
-@st.cache_data(ttl=300)
-def get_walmart_access_token():
-    url = "https://marketplace.walmartapis.com/v3/token"
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Accept": "application/json"
-    }
-    data = {
-        "grant_type": "client_credentials"
-    }
-    r = requests.post(url, headers=headers, data=data, auth=(CLIENT_ID, CLIENT_SECRET))
-    if r.status_code != 200:
-        st.error("Failed to authenticate with Walmart API.")
-        st.stop()
-    return r.json()["access_token"]
+BULLET_POINTS = [
+    "🎨 <strong>High-Quality Ink Printing:</strong> Our Baby Bodysuit features vibrant, long-lasting colors thanks to direct-to-garment printing, ensuring that your baby's outfit looks fantastic wash after wash.",
+    "🎖️ <strong>Proudly Veteran-Owned:</strong> Show your support for our heroes while dressing your little one in style with this adorable newborn romper from a veteran-owned small business.",
+    "👶 <strong>Comfort and Convenience:</strong> Crafted from soft, breathable materials, this Bodysuit provides maximum comfort for your baby. Plus, the convenient snap closure makes diaper changes a breeze.",
+    "🎁 <strong>Perfect Baby Shower Gift:</strong> This funny Baby Bodysuit makes for an excellent baby shower gift or a thoughtful present for any new parents. It's a sweet and meaningful addition to any baby's wardrobe.",
+    "📏 <strong>Versatile Sizing & Colors:</strong> Available in a range of sizes and colors, ensuring the perfect fit. Check our newborn outfit boy and girl sizing guide to find the right one for your little one."
+]
 
-access_token = get_walmart_access_token()
+FORCED_IMAGES = [
+    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/12efccc074d5a78e78e3e0be1150e85c5302d855.jpg",
+    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/9db0001144fa518c97c29ab557af269feae90acd.jpg",
+    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/ezgif.com-webp-to-jpg-converter.jpg",
+    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/2111f30dfd441733c577311e723de977.jpg",
+    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/8c9e801d190d7fcdd5d2cce9576aa8de.jpg"
+]
 
-# === SETUP ===
-fixed_variations = {
-    "Newborn White Short Sleeve": 24.99,
-    "Newborn White Long Sleeve": 25.99,
-    "Newborn (0-3M) Natural Short Sleeve": 26.99,
-    "0-3M White Short Sleeve": 24.99,
-    "0-3M White Long Sleeve": 25.99,
-    "0-3M Pink Short Sleeve": 26.99,
-    "0-3M Blue Short Sleeve": 26.99,
-    "3-6M White Short Sleeve": 24.99,
-    "3-6M White Long Sleeve": 25.99,
-    "3-6M Pink Short Sleeve": 26.99,
-    "3-6M Blue Short Sleeve": 26.99,
-    "6-9M White Short Sleeve": 24.99,
-    "6M Natural Short Sleeve": 26.99
+variation_map = {
+    ("Newborn", "White", "Short Sleeve"): "Newborn White Short Sleeve",
+    ("Newborn", "White", "Long Sleeve"): "Newborn White Long Sleeve",
+    ("Newborn", "Natural", "Short Sleeve"): "Newborn (0-3M) Natural Short Sleeve",
+    ("0-3M", "White", "Short Sleeve"): "0-3M White Short Sleeve",
+    ("0-3M", "White", "Long Sleeve"): "0-3M White Long Sleeve",
+    ("0-3M", "Pink", "Short Sleeve"): "0-3M Pink Short Sleeve",
+    ("0-3M", "Blue", "Short Sleeve"): "0-3M Blue Short Sleeve",
+    ("3-6M", "White", "Short Sleeve"): "3-6M White Short Sleeve",
+    ("3-6M", "White", "Long Sleeve"): "3-6M White Long Sleeve",
+    ("3-6M", "Pink", "Short Sleeve"): "3-6M Pink Short Sleeve",
+    ("3-6M", "Blue", "Short Sleeve"): "3-6M Blue Short Sleeve",
+    ("6-9M", "White", "Short Sleeve"): "6-9M White Short Sleeve",
+    ("6M", "Natural", "Short Sleeve"): "6M Natural Short Sleeve",
+    ("12M", "White", "Short Sleeve"): "12M White Short Sleeve",
+    ("12M", "White", "Long Sleeve"): "12M White Long Sleeve",
+    ("12M", "Natural", "Short Sleeve"): "12M Natural Short Sleeve",
+    ("12M", "Pink", "Short Sleeve"): "12M Pink Short Sleeve",
+    ("12M", "Blue", "Short Sleeve"): "12M Blue Short Sleeve",
+    ("18M", "White", "Short Sleeve"): "18M White Short Sleeve",
+    ("18M", "White", "Long Sleeve"): "18M White Long Sleeve",
+    ("18M", "Natural", "Short Sleeve"): "18M Natural Short Sleeve",
+    ("24M", "White", "Short Sleeve"): "24M White Short Sleeve",
+    ("24M", "White", "Long Sleeve"): "24M White Long Sleeve",
+    ("24M", "Natural", "Short Sleeve"): "24M Natural Short Sleeve",
 }
 
-forced_accessory_images = [
-    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/12efccc074d5a78e78e3e0be1150e85c5302d855_6fa13b1e-4e0d-40d0-ae35-4251523d5e93.jpg?v=1746713345",
-    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/9db0001144fa518c97c29ab557af269feae90acd_22c6519e-ae87-4fc2-b0e4-35f75dac06e9.jpg?v=1746713345",
-    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/ezgif.com-webp-to-jpg-converter.jpg?v=1746712913",
-    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/2111f30dfd441733c577311e723de977c5c4bdce_73235f99-f321-4496-909e-6806f7ac1478.jpg?v=1746713345",
-    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/8c9e801d190d7fcdd5d2cce9576aa8de994f16b5_c659fcfd-9bcf-4f8f-a54e-dd22c94da016.jpg?v=1746713345"
-]
-
-key_features = [
-    "High-Quality Ink Printing: Vibrant, long-lasting colors thanks to DTG printing.",
-    "Proudly Veteran-Owned: Designed by a veteran-owned small business.",
-    "Comfort and Convenience: Soft cotton and snap closures for easy diaper changes.",
-    "Perfect Baby Shower Gift: Adorable and meaningful.",
-    "Versatile Sizing & Colors: Multiple options for boys and girls."
-]
-
-static_description = "Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit..."
-
-# === DATA PROCESSING ===
-df = pd.read_csv(uploaded_file, low_memory=False)
-df = df.dropna(subset=['Handle'])
-grouped = df.groupby('Handle')
-
-# === FEED XML GENERATOR ===
-def build_walmart_item_feed(grouped):
+def build_walmart_xml(shopify_df):
+    grouped = shopify_df.groupby("Handle")
     ns = "http://walmart.com/"
     ET.register_namespace("", ns)
     root = ET.Element("{%s}ItemFeed" % ns)
@@ -91,73 +79,47 @@ def build_walmart_item_feed(grouped):
         images = group[['Image Src', 'Image Position']].dropna().sort_values(by='Image Position')
         if images.empty:
             continue
-
         main_image = images.iloc[0]['Image Src']
-        short_handle = re.sub(r'[^a-zA-Z0-9]', '', handle.lower())[:20]
-        parent_sku = f"{short_handle}-Parent-{random.randint(100,999)}"
+        variant_group_id = re.sub(r'[^a-zA-Z0-9]', '', handle.lower())[:20]
 
-        for variation, price in fixed_variations.items():
-            parts = variation.split()
-            if len(parts) < 3:
+        for _, row in group.iterrows():
+            size = str(row.get("Option1 Value", "")).strip()
+            color = str(row.get("Option2 Value", "")).strip()
+            sleeve = str(row.get("Option3 Value", "")).strip()
+            price = row.get("Variant Price", 0)
+
+            mapped = variation_map.get((size, color, sleeve))
+            if not mapped:
                 continue
-            size = parts[0]
-            color = parts[1]
-            sleeve = ' '.join(parts[2:])
-            child_sku = f"{short_handle}-{size}{color}{sleeve.replace(' ','')}-{random.randint(100,999)}"
+
+            short_handle = re.sub(r'[^a-zA-Z0-9]', '', handle.lower())[:20]
+            sku = f"{short_handle}-{size}{color}{sleeve.replace(' ', '')}-{random.randint(100,999)}"
 
             item = ET.SubElement(root, "Item")
-            ET.SubElement(item, "sku").text = child_sku
+            ET.SubElement(item, "sku").text = sku
             ET.SubElement(item, "productName").text = smart_title
-            ET.SubElement(item, "longDescription").text = static_description
-            ET.SubElement(item, "brand").text = "NOFO VIBES"
+            ET.SubElement(item, "productIdType").text = "GTIN"
+            ET.SubElement(item, "productId").text = GTIN_PLACEHOLDER
+            ET.SubElement(item, "manufacturerPartNumber").text = sku
             ET.SubElement(item, "price").text = f"{price:.2f}"
+            ET.SubElement(item, "brand").text = BRAND
             ET.SubElement(item, "mainImageUrl").text = main_image
-
-            for i, img in enumerate(forced_accessory_images):
+            for i, img in enumerate(FORCED_IMAGES):
                 ET.SubElement(item, f"additionalImageUrl{i+1}").text = img
+            long_desc = STATIC_DESCRIPTION + "".join([f"<p>{bp}</p>" for bp in BULLET_POINTS])
+            ET.SubElement(item, "longDescription").text = long_desc
+            ET.SubElement(item, "fulfillmentLagTime").text = FULFILLMENT_LAG
+            ET.SubElement(item, "variantGroupId").text = variant_group_id
+            ET.SubElement(item, "swatchImageUrl").text = main_image
+            ET.SubElement(item, "IsPreorder").text = IS_PREORDER
+            ET.SubElement(item, "productType").text = PRODUCT_TYPE
 
-            desc = ET.SubElement(item, "productIdentifiers")
-            ET.SubElement(desc, "productIdType").text = "GTIN"
-            ET.SubElement(desc, "productId").text = "000000000000"  # Use real or exempt value
+    return ET.tostring(root, encoding='utf-8', method='xml').decode('utf-8')
 
-            ET.SubElement(item, "category").text = "Clothing"
-            ET.SubElement(item, "manufacturer").text = "NOFO VIBES"
-            ET.SubElement(item, "manufacturerPartNumber").text = child_sku
-            ET.SubElement(item, "fulfillmentLagTime").text = "2"
-            ET.SubElement(item, "mainImageAltText").text = "Funny baby onesie design"
-
-            kf = ET.SubElement(item, "keyFeatures")
-            for feature in key_features:
-                ET.SubElement(kf, "keyFeature").text = feature
-
-            attrs = ET.SubElement(item, "additionalProductAttributes")
-            ET.SubElement(attrs, "additionalProductAttribute", {"name": "Sleeve"}).text = sleeve
-            ET.SubElement(attrs, "additionalProductAttribute", {"name": "Size"}).text = size
-            ET.SubElement(attrs, "additionalProductAttribute", {"name": "Color"}).text = color
-
-    return ET.tostring(root, encoding='utf-8', method='xml')
-
-# === SUBMIT TO WALMART ===
-def submit_to_walmart(xml_data, access_token):
-    headers = {
-        "WM_SVC.NAME": "Walmart Marketplace",
-        "WM_QOS.CORRELATION_ID": "submit-" + str(random.randint(1000,9999)),
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/xml",
-        "Content-Type": "application/xml"
-    }
-
-    url = "https://marketplace.walmartapis.com/v3/feeds?feedType=item"
-    response = requests.post(url, headers=headers, data=xml_data)
-    return response.status_code, response.text
-
-# === RUN PROCESS ===
-if st.button("Submit to Walmart API"):
-    with st.spinner("Building Walmart feed and uploading..."):
-        xml_feed = build_walmart_item_feed(grouped)
-        status, result = submit_to_walmart(xml_feed, access_token)
-
-        if status == 202:
-            st.success("✅ Walmart feed submitted successfully.")
-        else:
-            st.error(f"❌ Submission failed: {status}\n\n{result}")
+if __name__ == "__main__":
+    shopify_df = pd.read_csv(SHOPIFY_CSV_PATH)
+    shopify_df = shopify_df.dropna(subset=["Handle"])
+    xml_output = build_walmart_xml(shopify_df)
+    with open("walmart_product_feed.xml", "w", encoding="utf-8") as f:
+        f.write(xml_output)
+    print("✅ XML feed generated: walmart_product_feed.xml")
