@@ -5,15 +5,15 @@ import requests
 import re
 import random
 import argparse
-import time
 from datetime import datetime
 
-# === WALMART CREDENTIALS ===
+# === WALMART CREDENTIALS (embedded directly) ===
 CLIENT_ID = "8206856f-c686-489f-b165-aa2126817d7c"
 CLIENT_SECRET = "APzv6aIPN_ss3AzSFPPTmprRanVeHtacgjIXguk99PqwJCgKx9OBDDVuPBZ8kmr1jh2BCGpq2pLSTZDeSDg91Oo"
 
 # === CONFIG ===
 SHOPIFY_CSV_PATH = "products_export.csv"
+LOG_PATH = "walmart_log.txt"
 BRAND = "NOFO VIBES"
 FULFILLMENT_LAG = "2"
 PRODUCT_TYPE = "Clothing"
@@ -136,6 +136,10 @@ def track_feed(feed_id, token):
     res.raise_for_status()
     return res.text
 
+def log(message):
+    with open(LOG_PATH, "a") as log_file:
+        log_file.write(f"[{datetime.now()}] {message}\n")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--run", action="store_true", help="Run full upload")
@@ -146,7 +150,9 @@ if __name__ == "__main__":
     if args.track_feed:
         token = get_access_token()
         print("🔍 Checking feed status...")
-        print(track_feed(args.track_feed, token))
+        result = track_feed(args.track_feed, token)
+        print(result)
+        log(f"Tracked Feed ID {args.track_feed} - Response: {result}")
 
     elif args.dry_run:
         print("🧪 Generating Walmart XML (dry run)...")
@@ -156,6 +162,7 @@ if __name__ == "__main__":
         with open(name, "w", encoding="utf-8") as f:
             f.write(xml_output)
         print(f"✅ Dry run complete. XML saved as {name}")
+        log(f"Dry run completed. File: {name}")
 
     elif args.run:
         print("🚀 Running full Walmart feed upload...")
@@ -169,5 +176,6 @@ if __name__ == "__main__":
         response = submit_feed(xml_output, token)
         print("✅ Feed submitted successfully!")
         print(response)
+        log(f"Submitted Walmart feed. Response: {response}")
     else:
         print("⚠️ Please use one of: --run, --dry-run, or --track-feed FEED_ID")
