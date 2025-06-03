@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import pandas as pd
 import xml.etree.ElementTree as ET
@@ -5,6 +6,7 @@ import requests
 import re
 import random
 from datetime import datetime
+import math
 
 # === WALMART API CREDENTIALS ===
 CLIENT_ID = "8206856f-c686-489f-b165-aa2126817d7c"
@@ -44,24 +46,21 @@ IMAGES = [
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/8c9e801.jpg"
 ]
 
-# === YOUR VARIATIONS MAPPING ===
-VARIATIONS = {
-    "Newborn White Short Sleeve": "Newborn White Short Sleeve",
-    "Newborn Natural Short Sleeve": "Newborn Natural Short Sleeve",
-    "Newborn White Long Sleeve": "Newborn White Long Sleeve",
-    "0-3M White Long Sleeve": "0-3M White Long Sleeve",
-    "3-6M White Long Sleeve": "3-6M White Long Sleeve",
-    "0-3M White Short Sleeve": "0-3M White Short Sleeve",
-    "0-3M Pink Short Sleeve": "0-3M Pink Short Sleeve",
-    "0-3M Blue Short Sleeve": "0-3M Blue Short Sleeve",
-    "3-6M White Short Sleeve": "3-6M White Short Sleeve",
-    "3-6M Pink Short Sleeve": "3-6M Pink Short Sleeve",
-    "3-6M Blue Short Sleeve": "3-6M Blue Short Sleeve",
-    "6M Natural Short Sleeve": "6M Natural Short Sleeve",
-    "6-9M White Short Sleeve": "6-9M White Short Sleeve",
-    "12M White Short Sleeve": "12M White Short Sleeve",
-    # Fallback for single-variant:
-    "Default Title": "Default Title"
+# === MASTER VARIATIONS & PRICES (static mapping) ===
+fixed_variations = {
+    "Newborn White Short Sleeve": 27.99,
+    "Newborn White Long Sleeve": 28.99,
+    "Newborn (0-3M) Natural Short Sleeve": 31.99,
+    "0-3M White Short Sleeve": 27.99,
+    "0-3M White Long Sleeve": 28.99,
+    "0-3M Pink Short Sleeve": 31.99,
+    "0-3M Blue Short Sleeve": 31.99,
+    "3-6M White Short Sleeve": 27.99,
+    "3-6M White Long Sleeve": 28.99,
+    "3-6M Pink Short Sleeve": 31.99,
+    "3-6M Blue Short Sleeve": 31.99,
+    "6-9M White Short Sleeve": 27.99,
+    "6M Natural Short Sleeve": 31.99
 }
 
 
@@ -83,16 +82,13 @@ def get_token():
 
 def build_xml(df):
     """
-    Build a Walmart-compliant ItemFeed XML string from a Shopify DataFrame.
-
-    - Always produce at least one <Item> per Handle.
-    - Correctly fall back if “Variant Price” is missing or zero.
+    Build a Walmart‐compliant ItemFeed XML string from a Shopify DataFrame,
+    using the fixed_variations mapping regardless of what Shopify sends.
     """
     try:
-        # Required columns (case-sensitive)
+        # Required columns (case‐sensitive)
         required_cols = {
             "Title", "Handle",
-            "Option1 Value", "Variant Price",
             "Variant Inventory Qty", "Image Src", "Image Position"
         }
         if not required_cols.issubset(df.columns):
@@ -102,10 +98,13 @@ def build_xml(df):
         ET.register_namespace("", ns)
         root = ET.Element(f"{{{ns}}}ItemFeed")
 
+        # Group by Handle → treat each group as one product, but push every fixed_variation
         for handle, group in df.groupby("Handle"):
             title = group["Title"].iloc[0]
+            # Build your “smart” productName
             display_title = f"{title.split(' - ')[0]} - Baby Boy Girl Clothes Bodysuit Funny Cute"
 
+            # Use the first non‐null “Image Src” for this handle
             images = (
                 group[["Image Src", "Image Position"]]
                 .dropna()
@@ -117,52 +116,22 @@ def build_xml(df):
             main_image = images.iloc[0]["Image Src"]
             group_id = re.sub(r"[^a-zA-Z0-9]", "", handle.lower())[:20]
 
-            for _, row in group.iterrows():
-                raw_variant = str(row.get("Option1 Value", "")).strip()
-                if raw_variant == "" or raw_variant == "Default Title":
-                    mapped = "Default Title"
-                else:
-                    mapped = VARIATIONS.get(raw_variant)
-                    if mapped is None:
-                        st.warning(f"⚠️ Variation not mapped: '{raw_variant}' – using raw text as fallback.")
-                        mapped = raw_variant
+            # Compute total inventory for this handle (sum across all Shopify variants)
+            try:
+                total_qty = int(group["Variant Inventory Qty"].astype(float).sum())
+            except:
+                total_qty = 0
 
+            # For each master variation, create one <Item> with its fixed price
+            for variation_name, variation_price in fixed_variations.items():
                 size = color = sleeve = ""
-                parts = mapped.split(" ", 2)
+                parts = variation_name.split(" ", 2)
                 if len(parts) == 3:
                     size, color, sleeve = parts
                 elif len(parts) == 2:
                     size, color = parts
                 elif len(parts) == 1:
                     size = parts[0]
-
-                # Attempt to read Variant Price
-                raw_price = row.get("Variant Price", "")
-                try:
-                    price_val = float(raw_price)
-                except:
-                    price_val = 0.0
-
-                if price_val <= 0:
-                    if "Price / United States" in row:
-                        try:
-                            price_val = float(row.get("Price / United States", 0))
-                        except:
-                            price_val = 0.0
-
-                if price_val <= 0 and "Variant Compare At Price" in row:
-                    try:
-                        price_val = float(row.get("Variant Compare At Price", 0))
-                    except:
-                        price_val = 0.0
-
-                if price_val <= 0:
-                    st.warning(f"⚠️ Zero price for Handle='{handle}', Variant='{raw_variant}', defaulting to 0.00.")
-
-                try:
-                    qty = int(float(row.get("Variant Inventory Qty", 0)))
-                except:
-                    qty = 0
 
                 short_handle = re.sub(r"[^a-zA-Z0-9]", "", handle.lower())[:20]
                 sku = f"{short_handle}-{size}{color}{sleeve.replace(' ', '')}-{random.randint(100,999)}"
@@ -173,13 +142,15 @@ def build_xml(df):
                 ET.SubElement(item, "productIdType").text = "GTIN"
                 ET.SubElement(item, "productId").text = GTIN_PLACEHOLDER
                 ET.SubElement(item, "manufacturerPartNumber").text = sku
-                ET.SubElement(item, "price").text = f"{price_val:.2f}"
+                ET.SubElement(item, "price").text = f"{variation_price:.2f}"
                 ET.SubElement(item, "brand").text = BRAND
                 ET.SubElement(item, "mainImageUrl").text = main_image
 
+                # Add up to 5 additionalImageUrl tags
                 for idx, img_url in enumerate(IMAGES):
                     ET.SubElement(item, f"additionalImageUrl{idx+1}").text = img_url
 
+                # Long description (static + bullets)
                 full_desc = STATIC_DESCRIPTION + "".join(f"<p>{b}</p>" for b in BULLETS)
                 ET.SubElement(item, "longDescription").text = full_desc
 
@@ -189,8 +160,9 @@ def build_xml(df):
                 ET.SubElement(item, "isPreorder").text = IS_PREORDER
                 ET.SubElement(item, "productType").text = PRODUCT_TYPE
 
+                # Inventory quantity uses the total inventory for the handle
                 inventory = ET.SubElement(item, "inventory")
-                ET.SubElement(inventory, "quantity").text = str(qty)
+                ET.SubElement(inventory, "quantity").text = str(total_qty)
 
         return ET.tostring(root, encoding="utf-8", method="xml").decode("utf-8")
 
@@ -214,7 +186,6 @@ def submit_feed(xml: str, token: str) -> str:
         res = requests.post(FEED_URL, headers=headers, data=xml)
         res.raise_for_status()
         return res.text
-
     except Exception as e:
         st.error(f"❌ Submission failed: {e}")
         return None
@@ -231,7 +202,6 @@ def track_feed(feed_id: str, token: str) -> str:
         )
         res.raise_for_status()
         return res.text
-
     except Exception as e:
         st.error(f"❌ Feed tracking failed: {e}")
         return None
@@ -239,17 +209,15 @@ def track_feed(feed_id: str, token: str) -> str:
 
 # === STREAMLIT UI ===
 st.set_page_config(page_title="Walmart Product Feed Uploader", layout="wide")
-st.title("🛒 Walmart Product Feed Uploader (All-in-One)")
+st.title("🛒 Walmart Product Feed Uploader (Fixed Variations)")
 
 uploaded = st.file_uploader(
     "Upload your Shopify products_export.csv",
     type="csv",
     help=(
-        "Ensure your CSV has exactly these column headers (case-sensitive):\n"
+        "Make sure your CSV has the following headers (case‐sensitive):\n"
         "  • Title\n"
         "  • Handle\n"
-        "  • Option1 Value\n"
-        "  • Variant Price\n"
         "  • Variant Inventory Qty\n"
         "  • Image Src\n"
         "  • Image Position"
@@ -265,13 +233,14 @@ if uploaded:
     try:
         df = pd.read_csv(uploaded)
 
-        # Show detected columns & sample rows
+        # Show detected columns and a small preview for debugging
         st.write("▶️ Detected columns:", list(df.columns))
         st.write(df.head(2))
 
         if st.button("🧠 Generate Walmart XML"):
             xml = build_xml(df)
             if xml:
+                # Save to timestamped file so user can download
                 filename = f"walmart_feed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xml"
                 with open(filename, "w", encoding="utf-8") as f:
                     f.write(xml)
@@ -279,9 +248,11 @@ if uploaded:
                 st.success("✅ XML Generated!")
                 st.code(xml[:3000] + "...", language="xml")
 
+                # Download button
                 with open(filename, "rb") as f_bin:
                     st.download_button("📥 Download XML", f_bin, file_name=filename)
 
+                # Show “Submit to Walmart” button
                 if st.button("📤 Submit to Walmart"):
                     token = get_token()
                     if token:
@@ -293,6 +264,7 @@ if uploaded:
     except Exception as e:
         st.error(f"❌ Could not process CSV: {e}")
 
+# If the user enters a Feed ID, allow them to track its status
 if feed_status_id:
     if st.button("🔍 Track Feed Status"):
         token = get_token()
@@ -300,3 +272,4 @@ if feed_status_id:
             result = track_feed(feed_status_id, token)
             if result:
                 st.code(result)
+```
