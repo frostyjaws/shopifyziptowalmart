@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import xml.etree.ElementTree as ET
@@ -22,12 +21,13 @@ FEED_URL = "https://marketplace.walmartapis.com/v3/feeds?feedType=item"
 STATUS_URL = "https://marketplace.walmartapis.com/v3/feeds/{}"
 
 BULLETS = [
-    "🎨 <strong>High-Quality Ink Printing:</strong> ...",
-    "🎖️ <strong>Proudly Veteran-Owned:</strong> ...",
-    "👶 <strong>Comfort and Convenience:</strong> ...",
-    "🎁 <strong>Perfect Baby Shower Gift:</strong> ...",
-    "📏 <strong>Versatile Sizing & Colors:</strong> ..."
+    "🎨 <strong>High-Quality Ink Printing:</strong> Our Baby Bodysuit features vibrant, long-lasting colors thanks to direct-to-garment printing, ensuring that your baby's outfit looks fantastic wash after wash.",
+    "🎖️ <strong>Proudly Veteran-Owned:</strong> Show your support for our heroes while dressing your little one in style with this adorable newborn romper from a veteran-owned small business.",
+    "👶 <strong>Comfort and Convenience:</strong> Crafted from soft, breathable materials, this Bodysuit provides maximum comfort for your baby. Plus, the convenient snap closure makes diaper changes a breeze.",
+    "🎁 <strong>Perfect Baby Shower Gift:</strong> This funny Baby Bodysuit makes for an excellent baby shower gift or a thoughtful present for any new parents. It's a sweet and meaningful addition to any baby's wardrobe.",
+    "📏 <strong>Versatile Sizing & Colors:</strong> Available in a range of sizes and colors, ensuring the perfect fit. Check our newborn outfit boy and girl sizing guide to find the right one for your little one."
 ]
+
 IMAGES = [
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/12efccc.jpg",
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/9db0001.jpg",
@@ -35,6 +35,7 @@ IMAGES = [
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/2111f30.jpg",
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/8c9e801.jpg"
 ]
+
 VARIATIONS = {
     "Newborn White Short Sleeve": "Newborn White Short Sleeve",
     "Newborn Natural Short Sleeve": "Newborn Natural Short Sleeve",
@@ -64,130 +65,4 @@ def get_token():
         res.raise_for_status()
         return res.json()["access_token"]
     except Exception as e:
-        st.error(f"❌ Error getting access token: {e}")
-        return None
-
-def build_xml(df):
-    try:
-        if not {"Title", "Handle", "Option1 Value", "Variant Price", "Variant Inventory Qty", "Image Src", "Image Position"}.issubset(df.columns):
-            raise ValueError("CSV is missing one or more required columns.")
-
-        grouped = df.groupby("Handle")
-        ns = "http://walmart.com/"
-        ET.register_namespace("", ns)
-        root = ET.Element("{%s}ItemFeed" % ns)
-
-        for handle, group in grouped:
-            title = group['Title'].iloc[0]
-            display_title = f"{title.split(' - ')[0]} - Baby Boy Girl Clothes Bodysuit Funny Cute"
-            images = group[['Image Src', 'Image Position']].dropna().sort_values(by='Image Position')
-            if images.empty:
-                continue
-            main_image = images.iloc[0]['Image Src']
-            group_id = re.sub(r'[^a-zA-Z0-9]', '', handle.lower())[:20]
-
-            for _, row in group.iterrows():
-                raw = str(row.get("Option1 Value", "")).strip()
-                mapped = VARIATIONS.get(raw)
-                if not mapped:
-                    continue
-                try:
-                    size, color, sleeve = mapped.split(" ", 2)
-                except:
-                    continue
-                price = row.get("Variant Price", 0)
-                qty = int(float(row.get("Variant Inventory Qty", 1)))
-                short = re.sub(r'[^a-zA-Z0-9]', '', handle.lower())[:20]
-                sku = f"{short}-{size}{color}{sleeve.replace(' ', '')}-{random.randint(100,999)}"
-
-                item = ET.SubElement(root, "Item")
-                ET.SubElement(item, "sku").text = sku
-                ET.SubElement(item, "productName").text = display_title
-                ET.SubElement(item, "productIdType").text = "GTIN"
-                ET.SubElement(item, "productId").text = GTIN_PLACEHOLDER
-                ET.SubElement(item, "manufacturerPartNumber").text = sku
-                ET.SubElement(item, "price").text = f"{price:.2f}"
-                ET.SubElement(item, "brand").text = BRAND
-                ET.SubElement(item, "mainImageUrl").text = main_image
-                for i, img in enumerate(IMAGES):
-                    ET.SubElement(item, f"additionalImageUrl{i+1}").text = img
-                desc = STATIC_DESCRIPTION + "".join([f"<p>{b}</p>" for b in BULLETS])
-                ET.SubElement(item, "longDescription").text = desc
-                ET.SubElement(item, "fulfillmentLagTime").text = FULFILLMENT_LAG
-                ET.SubElement(item, "variantGroupId").text = group_id
-                ET.SubElement(item, "swatchImageUrl").text = main_image
-                ET.SubElement(item, "IsPreorder").text = IS_PREORDER
-                ET.SubElement(item, "productType").text = PRODUCT_TYPE
-                ET.SubElement(item, "quantity").text = str(qty)
-
-        return ET.tostring(root, encoding='utf-8', method='xml').decode('utf-8')
-    except Exception as e:
-        st.error(f"❌ XML generation failed: {e}")
-        return None
-
-def submit_feed(xml, token):
-    try:
-        headers = {
-            "WM_SVC.NAME": "Walmart Marketplace",
-            "WM_QOS.CORRELATION_ID": f"submit-{random.randint(1000,9999)}",
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/xml",
-            "Content-Type": "application/xml"
-        }
-        res = requests.post(FEED_URL, headers=headers, data=xml)
-        res.raise_for_status()
-        return res.text
-    except Exception as e:
-        st.error(f"❌ Submission failed: {e}")
-        return None
-
-def track_feed(feed_id, token):
-    try:
-        res = requests.get(
-            STATUS_URL.format(feed_id),
-            headers={"Authorization": f"Bearer {token}", "WM_SVC.NAME": "Walmart Marketplace"}
-        )
-        res.raise_for_status()
-        return res.text
-    except Exception as e:
-        st.error(f"❌ Feed tracking failed: {e}")
-        return None
-
-# === STREAMLIT UI ===
-st.set_page_config(page_title="Walmart Uploader", layout="wide")
-st.title("🛒 Walmart Product Feed Uploader (Error Safe)")
-
-uploaded = st.file_uploader("Upload Shopify products_export.csv", type="csv")
-feed_status_id = st.text_input("Enter Feed ID to track status:")
-
-if uploaded:
-    try:
-        df = pd.read_csv(uploaded)
-        if st.button("🧠 Generate Walmart XML"):
-            xml = build_xml(df)
-            if xml:
-                filename = f"walmart_feed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xml"
-                with open(filename, "w", encoding="utf-8") as f:
-                    f.write(xml)
-                st.success("✅ XML Generated!")
-                st.code(xml[:3000] + "...", language="xml")
-                with open(filename, "rb") as f:
-                    st.download_button("📥 Download XML", f, file_name=filename)
-
-                if st.button("📤 Submit to Walmart"):
-                    token = get_token()
-                    if token:
-                        response = submit_feed(xml, token)
-                        if response:
-                            st.success("✅ Feed Submitted!")
-                            st.code(response)
-    except Exception as e:
-        st.error(f"❌ Could not process CSV: {e}")
-
-if feed_status_id:
-    if st.button("🔍 Track Feed Status"):
-        token = get_token()
-        if token:
-            result = track_feed(feed_status_id, token)
-            if result:
-                st.code(result)
+        st.error(f"❌ Error getting access t
