@@ -7,8 +7,8 @@ import random
 from datetime import datetime
 
 # === WALMART API CREDENTIALS ===
-CLIENT_ID = "8206856f-c686-489f-b165-aa2126817d7c"
-CLIENT_SECRET = "APzv6aIPN_ss3AzSFPPTmprRanVeHtacgjIXguk99PqwJCgKx9OBDDVuPBZ8kmr1jh2BCGpq2pLSTZDeSDg91Oo"
+CLIENT_ID = "your_client_id"
+CLIENT_SECRET = "your_client_secret"
 
 # === CONSTANTS ===
 BRAND = "NOFO VIBES"
@@ -18,193 +18,80 @@ IS_PREORDER = "No"
 
 STATIC_DESCRIPTION = (
     "<p>Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit, "
-    "the perfect baby shower gift that will be cherished for years to come...</p>"
+    "the perfect baby shower gift that will be cherished for years to come. This charming piece "
+    "of baby clothing is an ideal new baby gift for welcoming a newborn into the world. Whether "
+    "it's for a baby announcement, a pregnancy reveal, or a special baby shower, this baby bodysuit "
+    "is sure to delight.</p>"
 )
 
-FEED_URL = "https://marketplace.walmartapis.com/v3/feeds?feedType=item"
-STATUS_URL = "https://marketplace.walmartapis.com/v3/feeds/{}"
-
-BULLETS = [
-    "🎨 <strong>High-Quality Ink Printing:</strong> Vibrant, long-lasting colors...",
-    "🎖️ <strong>Proudly Veteran-Owned:</strong> Support our heroes...",
-    "👶 <strong>Comfort and Convenience:</strong> Soft, breathable materials...",
-    "🎁 <strong>Perfect Baby Shower Gift:</strong> Thoughtful present for new parents...",
-    "📏 <strong>Versatile Sizing & Colors:</strong> Available in a range of sizes and colors..."
+STATIC_BULLETS = [
+    "🎨 <strong>High-Quality Ink Printing:</strong> Our Baby Bodysuit features vibrant, long-lasting colors thanks to direct-to-garment printing.",
+    "👕 <strong>Soft Cotton Fabric:</strong> Crafted from premium cotton for ultimate comfort.",
+    "💧 <strong>Machine Washable:</strong> Easy to clean and maintain for busy parents.",
+    "🎁 <strong>Perfect Gift:</strong> A delightful present for newborns, baby showers, and announcements.",
 ]
 
-IMAGES = [
-    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/12efccc.jpg",
-    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/9db0001.jpg",
-    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/ezgif.jpg",
-    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/2111f30.jpg",
-    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/8c9e801.jpg"
+ADDITIONAL_IMAGES = [
+    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/12efccc074d5a78e78e3e0be1150e85c5302d855_39118440-7324-4737-a9b6-9bc4e9dab73d.jpg?v=1740931622",
+    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/9db0001144fa518c97c29ab557af269feae90acd_32129b22-54df-4f68-8da7-30b93a0e85cc.jpg?v=1740931622",
+    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/2111f30dfd441733c577311e723de977c5c4bdce_07aeb493-bfd6-40d8-809d-709037313156.jpg?v=1740931622",
+    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/1a38365ed663e060d2590b04a0ec16b00004fe45_f8aaa5cc-0182-4bf8-9ada-860c6d175f25.jpg?v=1740931622"
 ]
 
-fixed_variations = {
-    "Newborn White Short Sleeve": 27.99,
-    "Newborn White Long Sleeve": 28.99,
-    "Newborn (0-3M) Natural Short Sleeve": 31.99,
-    "0-3M White Short Sleeve": 27.99,
-    "0-3M White Long Sleeve": 28.99,
-    "0-3M Pink Short Sleeve": 31.99,
-    "0-3M Blue Short Sleeve": 31.99,
-    "3-6M White Short Sleeve": 27.99,
-    "3-6M White Long Sleeve": 28.99,
-    "3-6M Pink Short Sleeve": 31.99,
-    "3-6M Blue Short Sleeve": 31.99,
-    "6-9M White Short Sleeve": 27.99,
-    "6M Natural Short Sleeve": 31.99
-}
+def generate_walmart_xml(df):
+    root = ET.Element("ItemFeed", xmlns="http://walmart.com/")
 
-INVENTORY_FOR_ALL = 999
+    for _, row in df.iterrows():
+        item = ET.SubElement(root, "item")
 
-def get_token():
-    try:
-        url = "https://marketplace.walmartapis.com/v3/token?grant_type=client_credentials"
-        response = requests.post(url, auth=(CLIENT_ID, CLIENT_SECRET))
-        response.raise_for_status()
-        return response.json().get("access_token")
-    except Exception as e:
-        st.error(f"❌ Error getting access token: {e}")
-        return None
+        # Basic product info
+        ET.SubElement(item, "sku").text = row["Handle"]
+        ET.SubElement(item, "productName").text = row["Title"]
+        ET.SubElement(item, "brand").text = BRAND
+        ET.SubElement(item, "productIdType").text = "GTIN"
+        ET.SubElement(item, "productId").text = GTIN_PLACEHOLDER
+        ET.SubElement(item, "productType").text = "Infant Clothing"
 
-def build_xml(df):
-    try:
-        required_cols = {"Title", "Handle", "Variant Inventory Qty", "Image Src", "Image Position"}
-        if not required_cols.issubset(df.columns):
-            raise ValueError("Missing required CSV columns.")
+        # Description and bullets
+        ET.SubElement(item, "longDescription").text = STATIC_DESCRIPTION
+        for bullet in STATIC_BULLETS:
+            ET.SubElement(item, "keyFeatures").text = bullet
 
-        ns = "http://walmart.com/"
-        ET.register_namespace("", ns)
-        root = ET.Element(f"{{{ns}}}ItemFeed")
+        # Images
+        ET.SubElement(item, "mainImageUrl").text = row["Image Src"]
+        for idx, img_url in enumerate(ADDITIONAL_IMAGES):
+            ET.SubElement(item, f"additionalImageUrl{idx + 1}").text = img_url
 
-        for handle, group in df.groupby("Handle"):
-            title = group["Title"].iloc[0]
-            display_title = f"{title.split(' - ')[0]} - Baby Boy Girl Clothes Bodysuit Funny Cute"
+        # Pricing and shipping
+        ET.SubElement(item, "price").text = str(row["Variant Price"])
+        ET.SubElement(item, "fulfillmentLagTime").text = FULFILLMENT_LAG
+        ET.SubElement(item, "isPreorder").text = IS_PREORDER
+        ET.SubElement(item, "isPrimaryVariant").text = "true"
+        ET.SubElement(item, "variantGroupId").text = re.sub(r'[^a-zA-Z0-9]', '', row["Title"])
 
-            images = (
-                group[["Image Src", "Image Position"]]
-                .dropna()
-                .sort_values(by="Image Position")
-            )
-            if images.empty:
-                continue
+        # Inventory
+        inventory = ET.SubElement(item, "inventory")
+        ET.SubElement(inventory, "fulfillmentCenterId").text = "WFS"
+        ET.SubElement(inventory, "quantity").text = "999"
 
-            main_image = images.iloc[0]["Image Src"]
-            group_id = re.sub(r"[^a-zA-Z0-9]", "", handle.lower())[:20]
+    return ET.tostring(root, encoding="utf-8", method="xml").decode()
 
-            for variation_name, price in fixed_variations.items():
-                parts = variation_name.split(" ", 2)
-                size, color, sleeve = (parts + ["", "", ""])[:3]
-                short_handle = re.sub(r"[^a-zA-Z0-9]", "", handle.lower())[:20]
-                sku = f"{short_handle}-{size}{color}{sleeve.replace(' ', '')}-{random.randint(100,999)}"
+# === STREAMLIT APP ===
+st.title("Walmart XML Feed Generator")
 
-                item = ET.SubElement(root, "Item")
-                ET.SubElement(item, "sku").text = sku
-                ET.SubElement(item, "productName").text = display_title
-                ET.SubElement(item, "productIdType").text = "GTIN"
-                ET.SubElement(item, "productId").text = GTIN_PLACEHOLDER
-                ET.SubElement(item, "manufacturerPartNumber").text = sku
-                ET.SubElement(item, "price").text = f"{price:.2f}"
-                ET.SubElement(item, "brand").text = BRAND
-                ET.SubElement(item, "mainImageUrl").text = main_image
+uploaded_file = st.file_uploader("Upload your Shopify CSV export", type="csv")
+if uploaded_file is not None:
+    df = pd.read_csv(uploaded_file)
 
-                for img_url in IMAGES[:5]:
-                    ET.SubElement(item, "additionalImageUrl").text = img_url
+    if "Handle" in df.columns and "Title" in df.columns and "Image Src" in df.columns and "Variant Price" in df.columns:
+        xml_output = generate_walmart_xml(df)
 
-                description = STATIC_DESCRIPTION + "".join(f"<p>{b}</p>" for b in BULLETS)
-                ET.SubElement(item, "longDescription").text = description
-                ET.SubElement(item, "fulfillmentLagTime").text = FULFILLMENT_LAG
-                ET.SubElement(item, "variantGroupId").text = group_id
-                ET.SubElement(item, "swatchImageUrl").text = main_image
-                ET.SubElement(item, "isPreorder").text = IS_PREORDER
-                ET.SubElement(item, "category").text = "Fashion"
-                ET.SubElement(item, "subCategory").text = "Baby Garments & Accessories"
-                ET.SubElement(item, "productType").text = "Baby Bodysuits & One‐Pieces"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"walmart_feed_{timestamp}.xml"
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(xml_output)
 
-                inventory = ET.SubElement(item, "inventory")
-                ET.SubElement(inventory, "quantity").text = str(INVENTORY_FOR_ALL)
-
-        return ET.tostring(root, encoding="utf-8", method="xml").decode("utf-8")
-    except Exception as e:
-        st.error(f"❌ XML generation failed: {e}")
-        return None
-
-def submit_feed(xml: str, token: str) -> str:
-    try:
-        headers = {
-            "WM_SVC.NAME": "Walmart Marketplace",
-            "WM_QOS.CORRELATION_ID": f"submit-{random.randint(1000,9999)}",
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/xml",
-            "Content-Type": "application/xml"
-        }
-        response = requests.post(FEED_URL, headers=headers, data=xml)
-        response.raise_for_status()
-        return response.text
-    except Exception as e:
-        st.error(f"❌ Submission failed: {e}")
-        return None
-
-def track_feed(feed_id: str, token: str) -> str:
-    try:
-        headers = {"Authorization": f"Bearer {token}", "WM_SVC.NAME": "Walmart Marketplace"}
-        response = requests.get(STATUS_URL.format(feed_id), headers=headers)
-        response.raise_for_status()
-        return response.text
-    except Exception as e:
-        st.error(f"❌ Feed tracking failed: {e}")
-        return None
-
-# === STREAMLIT UI ===
-st.set_page_config(page_title="Walmart Product Feed Uploader", layout="wide")
-st.title("🛒 Walmart Product Feed Uploader (Fixed Variations)")
-
-if "generated_xml" not in st.session_state:
-    st.session_state.generated_xml = None
-if "xml_filename" not in st.session_state:
-    st.session_state.xml_filename = None
-
-uploaded = st.file_uploader("Upload your Shopify products_export.csv", type="csv")
-
-feed_status_id = st.text_input("Enter Feed ID to track status:", placeholder="e.g. 1234567890")
-
-if uploaded:
-    try:
-        df = pd.read_csv(uploaded)
-        st.write("▶️ Detected columns:", list(df.columns))
-        st.write(df.head(2))
-
-        if st.button("🧠 Generate Walmart XML"):
-            xml = build_xml(df)
-            if xml:
-                filename = f"walmart_feed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xml"
-                with open(filename, "w", encoding="utf-8") as f:
-                    f.write(xml)
-                st.session_state.generated_xml = xml
-                st.session_state.xml_filename = filename
-                st.success("✅ XML Generated!")
-                st.code(xml[:3000] + "...", language="xml")
-
-        if st.session_state.generated_xml:
-            with open(st.session_state.xml_filename, "rb") as f:
-                st.download_button("📥 Download XML", f, file_name=st.session_state.xml_filename)
-
-            if st.button("📤 Submit to Walmart"):
-                token = get_token()
-                if token:
-                    result = submit_feed(st.session_state.generated_xml, token)
-                    if result:
-                        st.success("✅ Feed Submitted!")
-                        st.code(result)
-
-    except Exception as e:
-        st.error(f"❌ Could not process CSV: {e}")
-
-if feed_status_id:
-    if st.button("🔍 Track Feed Status"):
-        token = get_token()
-        if token:
-            result = track_feed(feed_status_id, token)
-            if result:
-                st.code(result)
+        st.success("XML feed generated!")
+        st.download_button(label="Download Walmart XML", data=xml_output, file_name=filename, mime="application/xml")
+    else:
+        st.error("Your CSV must contain the following columns: Handle, Title, Image Src, Variant Price")
