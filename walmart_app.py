@@ -14,7 +14,7 @@ CLIENT_SECRET = "APzv6aIPN_ss3AzSFPPTmprRanVeHtacgjIXguk99PqwJCgKx9OBDDVuPBZ8kmr
 BRAND = "NOFO VIBES"
 FULFILLMENT_LAG = "2"
 PRODUCT_TYPE = "Clothing"
-GTIN_PLACEHOLDER = "000000000000"  # Using GTIN exemption
+GTIN_PLACEHOLDER = "000000000000"  # GTIN exemption placeholder
 IS_PREORDER = "No"
 
 STATIC_DESCRIPTION = (
@@ -60,14 +60,16 @@ VARIATIONS = {
     "6M Natural Short Sleeve": "6M Natural Short Sleeve",
     "6-9M White Short Sleeve": "6-9M White Short Sleeve",
     "12M White Short Sleeve": "12M White Short Sleeve",
-    # Fallback so that “Default Title” (single-variant) still produces one <Item>
+    # Fallback so that “Default Title” (single‐variant) still produces one <Item>
     "Default Title": "Default Title"
 }
 
 # === FUNCTIONS ===
 
 def get_token():
-    """Retrieve OAuth token from Walmart."""
+    """
+    Retrieve OAuth token from Walmart.
+    """
     try:
         res = requests.post(
             "https://marketplace.walmartapis.com/v3/token",
@@ -84,12 +86,15 @@ def get_token():
 
 def build_xml(df):
     """
-    Build a Walmart-compliant ItemFeed XML string from a Shopify DataFrame.
+    Build a Walmart‐compliant ItemFeed XML string from a Shopify DataFrame.
 
-    - Always produces at least one <Item> per Handle (even if Option1 Value is "Default Title" or blank).
-    - If Option1 Value matches VARIATIONS, split into size/color/sleeve; otherwise, fallback to using the raw text.
+    - Always produces at least one <Item> per Handle, even if Option1 Value = "Default Title" or blank.
+    - If Option1 Value matches VARIATIONS, splits into size/color/sleeve; otherwise falls back to raw text (so
+      you always get an <Item> node).
+    - For price, first tries "Variant Price", and if that is 0 or missing, falls back to "Price / United States".
     """
     try:
+        # Make sure the CSV has these seven headers (case-sensitive):
         required_cols = {
             "Title", "Handle",
             "Option1 Value", "Variant Price",
@@ -98,42 +103,44 @@ def build_xml(df):
         if not required_cols.issubset(df.columns):
             raise ValueError("Missing one or more required columns in the CSV.")
 
-        # Create the XML root element with Walmart namespace
+        # Prepare XML root with Walmart namespace
         ns = "http://walmart.com/"
         ET.register_namespace("", ns)
         root = ET.Element("{%s}ItemFeed" % ns)
 
-        # Group by Handle (each product + its variants)
+        # Group by Handle → each group is one product (with possible variants)
         for handle, group in df.groupby("Handle"):
             title = group["Title"].iloc[0]
+            # Build the “smart” productName
             display_title = f"{title.split(' - ')[0]} - Baby Boy Girl Clothes Bodysuit Funny Cute"
 
+            # Collect images; sort by "Image Position"
             images = (
                 group[["Image Src", "Image Position"]]
                 .dropna()
                 .sort_values(by="Image Position")
             )
             if images.empty:
-                # Skip if no images (Walmart requires at least one)
+                # Walmart requires at least one image, so skip if none present
                 continue
 
             main_image = images.iloc[0]["Image Src"]
             group_id = re.sub(r"[^a-zA-Z0-9]", "", handle.lower())[:20]
 
-            # Every variant‐row under this handle produces exactly one <Item>
+            # For each row (variant) under this handle, we will create exactly one <Item>
             for _, row in group.iterrows():
                 raw_variant = str(row.get("Option1 Value", "")).strip()
 
-                # If blank or “Default Title,” treat as single‐variant fallback
+                # If empty or “Default Title”, treat as single-variant fallback
                 if raw_variant == "" or raw_variant == "Default Title":
                     mapped = "Default Title"
                 else:
                     mapped = VARIATIONS.get(raw_variant)
                     if mapped is None:
-                        st.warning(f"⚠️ Variation not mapped: '{raw_variant}' — using fallback text.")
+                        st.warning(f"⚠️ Variation not mapped: '{raw_variant}' — using raw text as fallback.")
                         mapped = raw_variant
 
-                # Attempt to split mapped string into size/color/sleeve
+                # Split mapped string into (size, color, sleeve) if it has 2 or 3 words
                 size = color = sleeve = ""
                 parts = mapped.split(" ", 2)
                 if len(parts) == 3:
@@ -145,31 +152,46 @@ def build_xml(df):
                     size = parts[0]
                     color = ""
                     sleeve = ""
-                # else: leave all fields empty
+                # Otherwise leave size/color/sleeve blank
 
-                price = row.get("Variant Price", 0)
-                qty = int(float(row.get("Variant Inventory Qty", 1)))
+                # Determine price: use "Variant Price" if >0; else fallback to "Price / United States"
+                raw_price = row.get("Variant Price", 0)
+                try:
+                    price_val = float(raw_price)
+                except:
+                    price_val = 0.0
+
+                if price_val <= 0:
+                    # Fallback to "Price / United States" column
+                    if "Price / United States" in df.columns:
+                        fallback_price = row.get("Price / United States", 0)
+                        try:
+                            price_val = float(fallback_price)
+                        except:
+                            price_val = 0.0
+
+                qty = int(float(row.get("Variant Inventory Qty", 0)))
                 short_handle = re.sub(r"[^a-zA-Z0-9]", "", handle.lower())[:20]
                 sku = f"{short_handle}-{size}{color}{sleeve.replace(' ', '')}-{random.randint(100,999)}"
 
-                # Build <Item> node
+                # Build <Item> element and its children:
                 item = ET.SubElement(root, "Item")
                 ET.SubElement(item, "sku").text = sku
                 ET.SubElement(item, "productName").text = display_title
                 ET.SubElement(item, "productIdType").text = "GTIN"
                 ET.SubElement(item, "productId").text = GTIN_PLACEHOLDER
                 ET.SubElement(item, "manufacturerPartNumber").text = sku
-                ET.SubElement(item, "price").text = f"{price:.2f}"
+                ET.SubElement(item, "price").text = f"{price_val:.2f}"
                 ET.SubElement(item, "brand").text = BRAND
                 ET.SubElement(item, "mainImageUrl").text = main_image
 
-                # Add up to 5 additionalImageUrl nodes
+                # Up to 5 additionalImageUrl tags
                 for idx, img_url in enumerate(IMAGES):
                     ET.SubElement(item, f"additionalImageUrl{idx+1}").text = img_url
 
-                # Long description (static + bullets)
-                long_desc = STATIC_DESCRIPTION + "".join(f"<p>{b}</p>" for b in BULLETS)
-                ET.SubElement(item, "longDescription").text = long_desc
+                # Build the longDescription (static + bullets)
+                full_desc = STATIC_DESCRIPTION + "".join(f"<p>{b}</p>" for b in BULLETS)
+                ET.SubElement(item, "longDescription").text = full_desc
 
                 ET.SubElement(item, "fulfillmentLagTime").text = FULFILLMENT_LAG
                 ET.SubElement(item, "variantGroupId").text = group_id
@@ -177,11 +199,11 @@ def build_xml(df):
                 ET.SubElement(item, "isPreorder").text = IS_PREORDER
                 ET.SubElement(item, "productType").text = PRODUCT_TYPE
 
-                # Always include an <inventory> block with <quantity>
+                # Always include <inventory><quantity>
                 inventory = ET.SubElement(item, "inventory")
                 ET.SubElement(inventory, "quantity").text = str(qty)
 
-        # Serialize XML to string
+        # Convert the ElementTree to a UTF-8 XML string
         return ET.tostring(root, encoding="utf-8", method="xml").decode("utf-8")
 
     except Exception as e:
@@ -232,14 +254,16 @@ st.title("🛒 Walmart Product Feed Uploader (All-in-One)")
 uploaded = st.file_uploader(
     "Upload your Shopify products_export.csv",
     type="csv",
-    help="Make sure your CSV has EXACTLY these column headers (case‐sensitive):\n"
-         "  • Title\n"
-         "  • Handle\n"
-         "  • Option1 Value\n"
-         "  • Variant Price\n"
-         "  • Variant Inventory Qty\n"
-         "  • Image Src\n"
-         "  • Image Position"
+    help=(
+        "Ensure your CSV has exactly these columns (case‐sensitive):\n"
+        "  • Title\n"
+        "  • Handle\n"
+        "  • Option1 Value\n"
+        "  • Variant Price\n"
+        "  • Variant Inventory Qty\n"
+        "  • Image Src\n"
+        "  • Image Position\n"
+    )
 )
 
 feed_status_id = st.text_input(
@@ -251,26 +275,26 @@ if uploaded:
     try:
         df = pd.read_csv(uploaded)
 
-        # Immediately show detected columns and a small preview so you can confirm everything is spelled correctly
+        # Immediately display detected columns and a tiny preview
         st.write("▶️ Detected columns:", list(df.columns))
         st.write(df.head(2))
 
         if st.button("🧠 Generate Walmart XML"):
             xml = build_xml(df)
             if xml:
-                # Save to a timestamped filename so you can download
+                # Save to a timestamped filename so user can download
                 filename = f"walmart_feed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xml"
                 with open(filename, "w", encoding="utf-8") as f:
                     f.write(xml)
 
                 st.success("✅ XML Generated!")
-                st.code(xml[:3000] + "...", language="xml")
+                st.code(xml[:3000] + "…", language="xml")
 
-                # Offer a download button
+                # Offer a download button for the XML
                 with open(filename, "rb") as f_bin:
                     st.download_button("📥 Download XML", f_bin, file_name=filename)
 
-                # Only show “Submit” after XML is built
+                # Show “Submit to Walmart” only after XML is generated
                 if st.button("📤 Submit to Walmart"):
                     token = get_token()
                     if token:
@@ -282,7 +306,7 @@ if uploaded:
     except Exception as e:
         st.error(f"❌ Could not process CSV: {e}")
 
-# If the user enters a feed ID, allow them to track its status
+# If user enters a Feed ID, allow status-tracking
 if feed_status_id:
     if st.button("🔍 Track Feed Status"):
         token = get_token()
