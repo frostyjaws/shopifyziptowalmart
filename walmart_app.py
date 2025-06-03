@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import pandas as pd
 import xml.etree.ElementTree as ET
@@ -6,7 +5,6 @@ import requests
 import re
 import random
 from datetime import datetime
-import math
 
 # === WALMART API CREDENTIALS ===
 CLIENT_ID = "8206856f-c686-489f-b165-aa2126817d7c"
@@ -86,7 +84,6 @@ def build_xml(df):
     using the fixed_variations mapping regardless of what Shopify sends.
     """
     try:
-        # Required columns (case‐sensitive)
         required_cols = {
             "Title", "Handle",
             "Variant Inventory Qty", "Image Src", "Image Position"
@@ -98,13 +95,11 @@ def build_xml(df):
         ET.register_namespace("", ns)
         root = ET.Element(f"{{{ns}}}ItemFeed")
 
-        # Group by Handle → treat each group as one product, but push every fixed_variation
         for handle, group in df.groupby("Handle"):
             title = group["Title"].iloc[0]
-            # Build your “smart” productName
             display_title = f"{title.split(' - ')[0]} - Baby Boy Girl Clothes Bodysuit Funny Cute"
 
-            # Use the first non‐null “Image Src” for this handle
+            # Pick the first image by position
             images = (
                 group[["Image Src", "Image Position"]]
                 .dropna()
@@ -112,17 +107,15 @@ def build_xml(df):
             )
             if images.empty:
                 continue
-
             main_image = images.iloc[0]["Image Src"]
             group_id = re.sub(r"[^a-zA-Z0-9]", "", handle.lower())[:20]
 
-            # Compute total inventory for this handle (sum across all Shopify variants)
+            # Sum up all inventory qty for this handle
             try:
                 total_qty = int(group["Variant Inventory Qty"].astype(float).sum())
             except:
                 total_qty = 0
 
-            # For each master variation, create one <Item> with its fixed price
             for variation_name, variation_price in fixed_variations.items():
                 size = color = sleeve = ""
                 parts = variation_name.split(" ", 2)
@@ -146,11 +139,10 @@ def build_xml(df):
                 ET.SubElement(item, "brand").text = BRAND
                 ET.SubElement(item, "mainImageUrl").text = main_image
 
-                # Add up to 5 additionalImageUrl tags
+                # Up to 5 additionalImageUrl tags
                 for idx, img_url in enumerate(IMAGES):
                     ET.SubElement(item, f"additionalImageUrl{idx+1}").text = img_url
 
-                # Long description (static + bullets)
                 full_desc = STATIC_DESCRIPTION + "".join(f"<p>{b}</p>" for b in BULLETS)
                 ET.SubElement(item, "longDescription").text = full_desc
 
@@ -160,7 +152,6 @@ def build_xml(df):
                 ET.SubElement(item, "isPreorder").text = IS_PREORDER
                 ET.SubElement(item, "productType").text = PRODUCT_TYPE
 
-                # Inventory quantity uses the total inventory for the handle
                 inventory = ET.SubElement(item, "inventory")
                 ET.SubElement(inventory, "quantity").text = str(total_qty)
 
@@ -211,6 +202,12 @@ def track_feed(feed_id: str, token: str) -> str:
 st.set_page_config(page_title="Walmart Product Feed Uploader", layout="wide")
 st.title("🛒 Walmart Product Feed Uploader (Fixed Variations)")
 
+# Make sure our session_state has keys for the XML and filename
+if "generated_xml" not in st.session_state:
+    st.session_state.generated_xml = None
+if "xml_filename" not in st.session_state:
+    st.session_state.xml_filename = None
+
 uploaded = st.file_uploader(
     "Upload your Shopify products_export.csv",
     type="csv",
@@ -237,29 +234,40 @@ if uploaded:
         st.write("▶️ Detected columns:", list(df.columns))
         st.write(df.head(2))
 
+        # ▶ FIX: Generate XML and store in session_state
         if st.button("🧠 Generate Walmart XML"):
-            xml = build_xml(df)
-            if xml:
-                # Save to timestamped file so user can download
+            xml_str = build_xml(df)
+            if xml_str:
+                # Save to a timestamped file for download
                 filename = f"walmart_feed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xml"
                 with open(filename, "w", encoding="utf-8") as f:
-                    f.write(xml)
+                    f.write(xml_str)
+
+                st.session_state.generated_xml = xml_str
+                st.session_state.xml_filename = filename
 
                 st.success("✅ XML Generated!")
-                st.code(xml[:3000] + "...", language="xml")
+                st.code(xml_str[:3000] + "...", language="xml")
 
-                # Download button
-                with open(filename, "rb") as f_bin:
-                    st.download_button("📥 Download XML", f_bin, file_name=filename)
+        # ▶ FIX: If we already have a generated XML in session_state, show Download + Submit buttons
+        if st.session_state.generated_xml:
+            # Download button
+            with open(st.session_state.xml_filename, "rb") as f_bin:
+                st.download_button(
+                    "📥 Download XML",
+                    data=f_bin,
+                    file_name=st.session_state.xml_filename,
+                    mime="application/xml",
+                )
 
-                # Show “Submit to Walmart” button
-                if st.button("📤 Submit to Walmart"):
-                    token = get_token()
-                    if token:
-                        response = submit_feed(xml, token)
-                        if response:
-                            st.success("✅ Feed Submitted!")
-                            st.code(response)
+            # Submit button (will use the same XML from session_state)
+            if st.button("📤 Submit to Walmart"):
+                token = get_token()
+                if token:
+                    response = submit_feed(st.session_state.generated_xml, token)
+                    if response:
+                        st.success("✅ Feed Submitted!")
+                        st.code(response)
 
     except Exception as e:
         st.error(f"❌ Could not process CSV: {e}")
@@ -272,4 +280,3 @@ if feed_status_id:
             result = track_feed(feed_status_id, token)
             if result:
                 st.code(result)
-```
