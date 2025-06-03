@@ -1,10 +1,11 @@
+import streamlit as st
 import csv
 import random
-import os
 import xml.etree.ElementTree as ET
 from datetime import datetime
+import io
 
-# ----- Static configuration -----
+# Config
 INVENTORY_QUANTITY = 999
 ADDITIONAL_IMAGE_URLS = [
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/12efccc074d5a78e78e3e0be1150e85c5302d855_39118440-7324-4737-a9b6-9bc4e9dab73d.jpg?v=1740931622",
@@ -12,7 +13,6 @@ ADDITIONAL_IMAGE_URLS = [
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/2111f30dfd441733c577311e723de977c5c4bdce_07aeb493-bfd6-40d8-809d-709037313156.jpg?v=1740931622",
     "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/1a38365ed663e060d2590b04a0ec16b00004fe45_f8aaa5cc-0182-4bf8-9ada-860c6d175f25.jpg?v=1740931622",
 ]
-
 PRICE_MAP = {
     "Newborn White Short Sleeve": 27.99,
     "Newborn White Long Sleeve": 28.99,
@@ -29,6 +29,7 @@ PRICE_MAP = {
     "6M Natural Short Sleeve": 31.99,
 }
 
+# SKU generator
 def generate_sku(title, variation):
     base = ''.join(c for c in title if c.isalnum())
     color = next((c for c in ["White", "Pink", "Blue", "Natural"] if c in variation), "Unknown")
@@ -40,49 +41,46 @@ def generate_sku(title, variation):
 def get_price(variation):
     return PRICE_MAP.get(variation.strip(), 27.99)
 
-def find_csv_file():
-    for file in os.listdir():
-        if file.endswith(".csv") and "export" in file:
-            return file
-    raise FileNotFoundError("❌ No Shopify export CSV file found in directory.")
-
-def build_walmart_xml(csv_file):
+# Walmart XML builder
+def build_xml_from_csv(file):
+    reader = csv.DictReader(io.StringIO(file.getvalue().decode("utf-8")))
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_filename = f"walmart_feed_{now}.xml"
+    root = ET.Element("WalmartFeed")
+    items_el = ET.SubElement(root, "ItemList")
 
-    tree = ET.Element("WalmartFeed")
-    items_el = ET.SubElement(tree, "ItemList")
+    for row in reader:
+        title = row.get("Title", "").strip()
+        variation = row.get("Variant Title", "").strip()
+        image = row.get("Image Src", "").strip()
+        price = get_price(variation)
+        sku = generate_sku(title, variation)
 
-    with open(csv_file, newline='', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            title = row.get("Title", "").strip()
-            variation = row.get("Variant Title", "").strip()
-            main_image = row.get("Image Src", "").strip()
+        item_el = ET.SubElement(items_el, "Item")
+        ET.SubElement(item_el, "sku").text = sku
+        ET.SubElement(item_el, "productName").text = f"{title} - Baby Bodysuit"
+        ET.SubElement(item_el, "productId").text = "EXEMPT"
+        ET.SubElement(item_el, "productIdType").text = "GTIN"
+        ET.SubElement(item_el, "price").text = f"{price:.2f}"
+        ET.SubElement(item_el, "quantity").text = str(INVENTORY_QUANTITY)
+        ET.SubElement(item_el, "mainImageUrl").text = image
+        for i, url in enumerate(ADDITIONAL_IMAGE_URLS, start=1):
+            ET.SubElement(item_el, f"additionalImageUrl{i}").text = url
 
-            sku = generate_sku(title, variation)
-            price = get_price(variation)
+    return ET.tostring(root, encoding='utf-8')
 
-            item_el = ET.SubElement(items_el, "Item")
-            ET.SubElement(item_el, "sku").text = sku
-            ET.SubElement(item_el, "productName").text = f"{title} - Baby Bodysuit"
-            ET.SubElement(item_el, "productId").text = "EXEMPT"
-            ET.SubElement(item_el, "productIdType").text = "GTIN"
-            ET.SubElement(item_el, "price").text = f"{price:.2f}"
-            ET.SubElement(item_el, "quantity").text = str(INVENTORY_QUANTITY)
-            ET.SubElement(item_el, "mainImageUrl").text = main_image
+# Streamlit UI
+st.title("🍼 Walmart XML Generator")
+st.markdown("Upload your Shopify CSV and download the Walmart XML feed.")
 
-            for i, url in enumerate(ADDITIONAL_IMAGE_URLS, start=1):
-                ET.SubElement(item_el, f"additionalImageUrl{i}").text = url
+uploaded_file = st.file_uploader("📥 Upload Shopify CSV", type=["csv"])
 
-    tree_bytes = ET.tostring(tree, encoding='utf-8', method='xml')
-    with open(output_filename, "wb") as f:
-        f.write(tree_bytes)
-    print(f"✅ Walmart XML generated: {output_filename}")
-
-# Run the script safely
-try:
-    csv_filename = find_csv_file()
-    build_walmart_xml(csv_filename)
-except Exception as e:
-    print(f"❌ Error: {e}")
+if uploaded_file:
+    if st.button("🚀 Generate Walmart XML"):
+        try:
+            xml_bytes = build_xml_from_csv(uploaded_file)
+            now = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"walmart_feed_{now}.xml"
+            st.success("✅ Walmart XML generated!")
+            st.download_button("📤 Download XML", xml_bytes, file_name=filename, mime="application/xml")
+        except Exception as e:
+            st.error(f"❌ Error: {e}")
