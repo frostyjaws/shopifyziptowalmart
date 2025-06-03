@@ -13,7 +13,6 @@ CLIENT_SECRET = "APzv6aIPN_ss3AzSFPPTmprRanVeHtacgjIXguk99PqwJCgKx9OBDDVuPBZ8kmr
 # === CONSTANTS ===
 BRAND = "NOFO VIBES"
 FULFILLMENT_LAG = "2"
-PRODUCT_TYPE = "Clothing"
 GTIN_PLACEHOLDER = "000000000000"  # GTIN exemption placeholder
 IS_PREORDER = "No"
 
@@ -61,6 +60,8 @@ fixed_variations = {
     "6M Natural Short Sleeve": 31.99
 }
 
+# Force all items to show as in-stock quantity = 999
+INVENTORY_FOR_ALL = 999
 
 def get_token():
     """Retrieve OAuth token from Walmart."""
@@ -77,13 +78,13 @@ def get_token():
         st.error(f"❌ Error getting access token: {e}")
         return None
 
-
 def build_xml(df):
     """
     Build a Walmart‐compliant ItemFeed XML string from a Shopify DataFrame,
     using the fixed_variations mapping regardless of what Shopify sends.
     """
     try:
+        # Required columns (case‐sensitive)
         required_cols = {
             "Title", "Handle",
             "Variant Inventory Qty", "Image Src", "Image Position"
@@ -97,9 +98,10 @@ def build_xml(df):
 
         for handle, group in df.groupby("Handle"):
             title = group["Title"].iloc[0]
+            # Build your “smart” productName
             display_title = f"{title.split(' - ')[0]} - Baby Boy Girl Clothes Bodysuit Funny Cute"
 
-            # Pick the first image by position
+            # Use the first non‐null “Image Src” for this handle
             images = (
                 group[["Image Src", "Image Position"]]
                 .dropna()
@@ -107,14 +109,9 @@ def build_xml(df):
             )
             if images.empty:
                 continue
+
             main_image = images.iloc[0]["Image Src"]
             group_id = re.sub(r"[^a-zA-Z0-9]", "", handle.lower())[:20]
-
-            # Sum up all inventory qty for this handle
-            try:
-                total_qty = int(group["Variant Inventory Qty"].astype(float).sum())
-            except:
-                total_qty = 0
 
             for variation_name, variation_price in fixed_variations.items():
                 size = color = sleeve = ""
@@ -137,12 +134,15 @@ def build_xml(df):
                 ET.SubElement(item, "manufacturerPartNumber").text = sku
                 ET.SubElement(item, "price").text = f"{variation_price:.2f}"
                 ET.SubElement(item, "brand").text = BRAND
+
+                # Main image
                 ET.SubElement(item, "mainImageUrl").text = main_image
 
-                # Up to 5 additionalImageUrl tags
-                for idx, img_url in enumerate(IMAGES):
-                    ET.SubElement(item, f"additionalImageUrl{idx+1}").text = img_url
+                # Up to five additionalImageUrl tags (no numeric suffix)
+                for img_url in IMAGES[:5]:
+                    ET.SubElement(item, "additionalImageUrl").text = img_url
 
+                # Long description (static + bullets)
                 full_desc = STATIC_DESCRIPTION + "".join(f"<p>{b}</p>" for b in BULLETS)
                 ET.SubElement(item, "longDescription").text = full_desc
 
@@ -150,17 +150,21 @@ def build_xml(df):
                 ET.SubElement(item, "variantGroupId").text = group_id
                 ET.SubElement(item, "swatchImageUrl").text = main_image
                 ET.SubElement(item, "isPreorder").text = IS_PREORDER
-                ET.SubElement(item, "productType").text = PRODUCT_TYPE
 
+                # Exact Category / Subcategory / ProductType (per screenshot)
+                ET.SubElement(item, "category").text = "Fashion"
+                ET.SubElement(item, "subCategory").text = "Baby Garments & Accessories"
+                ET.SubElement(item, "productType").text = "Baby Bodysuits & One‐Pieces"
+
+                # Force inventory to 999
                 inventory = ET.SubElement(item, "inventory")
-                ET.SubElement(inventory, "quantity").text = str(total_qty)
+                ET.SubElement(inventory, "quantity").text = str(INVENTORY_FOR_ALL)
 
         return ET.tostring(root, encoding="utf-8", method="xml").decode("utf-8")
 
     except Exception as e:
         st.error(f"❌ XML generation failed: {e}")
         return None
-
 
 def submit_feed(xml: str, token: str) -> str:
     """
@@ -181,7 +185,6 @@ def submit_feed(xml: str, token: str) -> str:
         st.error(f"❌ Submission failed: {e}")
         return None
 
-
 def track_feed(feed_id: str, token: str) -> str:
     """
     Check the status of a previously submitted feed ID.
@@ -197,12 +200,11 @@ def track_feed(feed_id: str, token: str) -> str:
         st.error(f"❌ Feed tracking failed: {e}")
         return None
 
-
 # === STREAMLIT UI ===
 st.set_page_config(page_title="Walmart Product Feed Uploader", layout="wide")
 st.title("🛒 Walmart Product Feed Uploader (Fixed Variations)")
 
-# Make sure our session_state has keys for the XML and filename
+# Initialize session_state for generated XML
 if "generated_xml" not in st.session_state:
     st.session_state.generated_xml = None
 if "xml_filename" not in st.session_state:
@@ -234,7 +236,7 @@ if uploaded:
         st.write("▶️ Detected columns:", list(df.columns))
         st.write(df.head(2))
 
-        # ▶ FIX: Generate XML and store in session_state
+        # Generate XML and store in session_state
         if st.button("🧠 Generate Walmart XML"):
             xml_str = build_xml(df)
             if xml_str:
@@ -249,7 +251,7 @@ if uploaded:
                 st.success("✅ XML Generated!")
                 st.code(xml_str[:3000] + "...", language="xml")
 
-        # ▶ FIX: If we already have a generated XML in session_state, show Download + Submit buttons
+        # If we already have generated XML, show Download + Submit buttons
         if st.session_state.generated_xml:
             # Download button
             with open(st.session_state.xml_filename, "rb") as f_bin:
@@ -260,7 +262,7 @@ if uploaded:
                     mime="application/xml",
                 )
 
-            # Submit button (will use the same XML from session_state)
+            # Submit button (uses the same XML from session_state)
             if st.button("📤 Submit to Walmart"):
                 token = get_token()
                 if token:
@@ -272,7 +274,7 @@ if uploaded:
     except Exception as e:
         st.error(f"❌ Could not process CSV: {e}")
 
-# If the user enters a Feed ID, allow them to track its status
+# Track Feed Status
 if feed_status_id:
     if st.button("🔍 Track Feed Status"):
         token = get_token()
