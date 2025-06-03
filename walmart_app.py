@@ -1,5 +1,6 @@
 import csv
 import random
+import os
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
@@ -39,6 +40,12 @@ def generate_sku(title, variation):
 def get_price(variation):
     return PRICE_MAP.get(variation.strip(), 27.99)
 
+def find_csv_file():
+    for file in os.listdir():
+        if file.endswith(".csv") and "export" in file:
+            return file
+    raise FileNotFoundError("❌ No Shopify export CSV file found in directory.")
+
 def build_walmart_xml(csv_file):
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_filename = f"walmart_feed_{now}.xml"
@@ -73,5 +80,9 @@ def build_walmart_xml(csv_file):
         f.write(tree_bytes)
     print(f"✅ Walmart XML generated: {output_filename}")
 
-# Run the generator on your CSV
-build_walmart_xml("products_export.csv")
+# Run the script safely
+try:
+    csv_filename = find_csv_file()
+    build_walmart_xml(csv_filename)
+except Exception as e:
+    print(f"❌ Error: {e}")
