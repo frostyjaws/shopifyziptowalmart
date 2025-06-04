@@ -120,12 +120,23 @@ def submit_to_walmart_api(file_path):
         "Accept": "application/xml"
     }
 
-    with open(file_path, "rb") as file:
-        post = requests.post(WALMART_FEED_URL, data=file.read(), headers=headers)
+    # Use a raw prepared request to preserve header case
+    session = requests.Session()
+    with open(file_path, "rb") as xml_file:
+        request = requests.Request(
+            "POST",
+            WALMART_FEED_URL,
+            headers=headers,
+            data=xml_file.read()
+        )
+        prepped = session.prepare_request(request)
+        prepped.headers = headers  # force exact casing
 
-    if post.status_code in (200, 201):
+        response = session.send(prepped)
+
+    if response.status_code in (200, 201):
         return True, "✅ Submitted to Walmart API"
-    return False, f"❌ Submission Failed (status {post.status_code}): {post.text}"
+    return False, f"❌ Submission Failed (status {response.status_code}): {response.text}"
 
 # ========== STREAMLIT UI ==========
 st.set_page_config(page_title="Walmart Feed Generator", layout="centered")
