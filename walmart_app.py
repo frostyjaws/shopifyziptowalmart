@@ -98,22 +98,31 @@ def build_walmart_xml(file_content):
     return filename
 
 def submit_to_walmart_api(file_path):
-    # 1. Get OAuth Token
+    # Step 1: Get token WITHOUT WM_ headers
     token_url = "https://marketplace.walmartapis.com/v3/token"
     token_data = {"grant_type": "client_credentials"}
-    token_headers = {"Accept": "application/json"}
+    token_headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
 
-    response = requests.post(token_url, data=token_data, headers=token_headers, auth=(CLIENT_ID, CLIENT_SECRET))
-    if response.status_code != 200:
-        return False, f"❌ Auth Failed (token request failed {response.status_code}): {response.text}"
+    token_response = requests.post(
+        token_url,
+        data=token_data,
+        headers=token_headers,
+        auth=(CLIENT_ID, CLIENT_SECRET)
+    )
 
-    token = response.json().get("access_token")
+    if token_response.status_code != 200:
+        return False, f"❌ Auth Failed (token request failed {token_response.status_code}): {token_response.text}"
+
+    token = token_response.json().get("access_token")
     if not token:
-        return False, "❌ Auth Failed: access_token not found in response"
+        return False, "❌ Auth Failed: access_token not found in token response"
 
-    # 2. Prepare correct WM headers for feed submission
+    # Step 2: Set correct headers for feed submission
     correlation_id = str(random.randint(100000, 999999))
-    headers = {
+    submission_headers = {
         "WM_SVC.NAME": "Walmart Marketplace",
         "WM_QOS.CORRELATION_ID": correlation_id,
         "WM_SEC.ACCESS_TOKEN": token,
@@ -122,17 +131,17 @@ def submit_to_walmart_api(file_path):
         "Content-Type": "application/xml"
     }
 
-    # 3. Submit feed using manually prepared request to preserve header casing
-    session = requests.Session()
-    with open(file_path, "rb") as xml_file:
+    # Step 3: Submit feed using session to preserve header casing
+    with open(file_path, "rb") as file:
+        session = requests.Session()
         request = requests.Request(
             "POST",
             WALMART_FEED_URL,
-            headers=headers,
-            data=xml_file.read()
+            headers=submission_headers,
+            data=file.read()
         )
         prepared = session.prepare_request(request)
-        prepared.headers = headers  # enforce exact casing
+        prepared.headers = submission_headers  # reapply for exact casing
         response = session.send(prepared)
 
     if response.status_code in (200, 201):
