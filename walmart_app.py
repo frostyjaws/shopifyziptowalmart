@@ -8,8 +8,8 @@ from datetime import datetime
 from io import StringIO
 
 # ========== CONFIG ==========
-CLIENT_ID = "8206856f-c686-489f-b165-aa2126817d7c"
-CLIENT_SECRET = "APzv6aIPN_ss3AzSFPPTmprRanVeHtacgjIXguk99PqwJCgKx9OBDDVuPBZ8kmr1jh2BCGpq2pLSTZDeSDg91Oo"
+CLIENT_ID = "a57108a5-d1fd-417a-8189-1c0f649dacb7"
+CLIENT_SECRET = "Qns8hUf4AQskVHtjVykx4M0WPswCKW_9OS2qwlb12UInSuDjMZ1XtCXFiPT9AO47vYTyCM2_vTZQG_Ds0ZEMQg"
 CONSUMER_CHANNEL_TYPE = "9f3ce7f5-d168-4f2d-b7a2-e46d7a39cb17"
 WALMART_FEED_URL = "https://marketplace.walmartapis.com/v3/feeds?feedType=MP_ITEM"
 
@@ -71,7 +71,8 @@ def build_walmart_xml(file_content):
             ET.SubElement(mp_item, "productTaxCode").text = "2038710"
             ET.SubElement(mp_item, "category").text = "Baby > Apparel > Bodysuits"
             ET.SubElement(mp_item, "description").text = (
-                "Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit..."
+                "Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit, the perfect baby shower gift that will be cherished for years to come. "
+                "This charming piece of baby clothing is an ideal new baby gift for welcoming a newborn into the world..."
             )
             ET.SubElement(mp_item, "brand").text = "NOFO VIBES"
             ET.SubElement(mp_item, "mainImageUrl").text = image
@@ -101,9 +102,12 @@ def submit_to_walmart_api(file_path):
         return False, f"❌ Auth Failed (token request failed {response.status_code}): {response.text}"
 
     token = response.json().get("access_token")
+    if not token:
+        return False, "❌ No access token received"
+
     headers = {
         "WM_SVC.NAME": "Walmart Marketplace",
-        "WM_QOS.CORRELATION_ID": str(random.randint(100000, 999999)),
+        "WM_QOS.CORRELATION_ID": str(random.randint(1000000, 9999999)),
         "WM_SEC.ACCESS_TOKEN": token,
         "WM_CONSUMER.CHANNEL.TYPE": CONSUMER_CHANNEL_TYPE,
         "Accept": "application/xml",
