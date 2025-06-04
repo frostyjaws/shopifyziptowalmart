@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import csv
 import xml.etree.ElementTree as ET
@@ -81,18 +80,8 @@ def build_walmart_xml(file_content):
             ET.SubElement(mp_item, "category").text = "Baby > Apparel > Bodysuits"
             ET.SubElement(mp_item, "description").text = (
                 "Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit, the perfect baby shower gift that will be cherished for years to come. "
-                "This charming piece of baby clothing is an ideal new baby gift for welcoming a newborn into the world. Whether it's for a baby announcement, a pregnancy reveal, "
-                "or a special baby shower, this baby bodysuit is sure to delight. Our Custom Baby Bodysuit features a playful and cute design, perfect for showcasing your baby's "
-                "unique personality. Made with love and care, this baby bodysuit is designed to keep your baby comfortable and stylish. It's an essential item in cute baby clothes, "
-                "making it a standout piece for any new arrival. Perfect for both baby boys and girls, this versatile baby bodysuit is soft, comfortable, and durable, ensuring it "
-                "can withstand numerous washes. The easy-to-use snaps make changing a breeze, providing convenience for busy parents. Whether you're looking for a personalized baby "
-                "bodysuit, a funny baby bodysuit, or a cute baby bodysuit, this Custom Baby Bodysuit has it all. It’s ideal for celebrating the excitement of a new baby, featuring "
-                "charming and customizable designs. This makes it a fantastic option for funny baby clothes that bring a smile to everyone's face. Imagine gifting this delightful baby "
-                "bodysuit at a baby shower or using it as a memorable baby announcement or pregnancy reveal. It’s perfect for anyone searching for a unique baby gift, announcement "
-                "baby bodysuit, or a special new baby bodysuit. This baby bodysuit is not just an item of clothing; it’s a keepsake that celebrates the joy and wonder of a new life. "
-                "From baby boy clothes to baby girl clothes, this baby bodysuit is perfect for any newborn. Whether it’s a boho design, a Fathers Day gift, or custom baby clothes, "
-                "this piece is a wonderful addition to any baby's wardrobe. Get this Custom Baby Bodysuit today and let your little one showcase their personality in the cutest way possible. "
-                "It's the ideal gift for a new baby, perfect for any occasion from baby showers to baby announcements. Celebrate the joy of a new life with this charming and meaningful baby bodysuit."
+                "Made with love and care, this baby bodysuit is designed to keep your baby comfortable and stylish. Whether you're looking for a personalized baby "
+                "bodysuit, a funny baby bodysuit, or a cute baby bodysuit, this Custom Baby Bodysuit has it all. It's the ideal gift for a new baby."
             )
             ET.SubElement(mp_item, "brand").text = "NOFO VIBES"
             ET.SubElement(mp_item, "mainImageUrl").text = image
@@ -111,41 +100,33 @@ def build_walmart_xml(file_content):
 
 def submit_to_walmart_api(file_path):
     token_url = "https://marketplace.walmartapis.com/v3/token"
-
-    # 1) Request OAuth token via Basic Auth
     token_data = {"grant_type": "client_credentials"}
     token_headers = {"Accept": "application/json"}
-    resp = requests.post(
-        token_url,
-        data=token_data,
-        auth=(CLIENT_ID, CLIENT_SECRET),
-        headers=token_headers
-    )
 
-    if resp.status_code != 200:
-        return False, f"❌ Auth Failed (status {resp.status_code}): {resp.text}"
+    # Use HTTP Basic Auth as required by Walmart
+    response = requests.post(token_url, data=token_data, headers=token_headers, auth=(CLIENT_ID, CLIENT_SECRET))
+    if response.status_code != 200:
+        return False, f"❌ Auth Failed (status {response.status_code}): {response.text}"
 
-    token = resp.json().get("access_token")
+    token = response.json().get("access_token")
     if not token:
         return False, "❌ Auth Failed (no access_token in response)"
 
-    # 2) Build headers for feed submission
     headers = {
-        "WM_SVC.NAME":             "Walmart Marketplace",
-        "WM_QOS.CORRELATION_ID":   str(random.randint(100000, 999999)),
-        "WM_SEC.ACCESS_TOKEN":     token,
+        "WM_SVC.NAME": "Walmart Marketplace",
+        "WM_QOS.CORRELATION_ID": str(random.randint(100000, 999999)),
+        "WM_SEC.ACCESS_TOKEN": token,
         "WM_CONSUMER.CHANNEL.TYPE": CONSUMER_CHANNEL_TYPE,
-        "Accept":                  "application/xml",
-        "Content-Type":            "application/xml"
+        "Accept": "application/xml",
+        "Content-Type": "application/xml"
     }
 
-    # 3) POST XML bytes to Walmart
-    with open(file_path, "rb") as fp:
-        post_resp = requests.post(WALMART_FEED_URL, data=fp.read(), headers=headers)
+    with open(file_path, "rb") as file:
+        post = requests.post(WALMART_FEED_URL, data=file.read(), headers=headers)
 
-    if post_resp.status_code in (200, 201):
+    if post.status_code in (200, 201):
         return True, "✅ Submitted to Walmart API"
-    return False, f"❌ Submission Failed (status {post_resp.status_code}): {post_resp.text}"
+    return False, f"❌ Submission Failed (status {post.status_code}): {post.text}"
 
 # ========== STREAMLIT UI ==========
 st.set_page_config(page_title="Walmart Feed Generator", layout="centered")
@@ -174,4 +155,3 @@ if uploaded_file:
                         st.error(msg)
         except Exception as e:
             st.error(f"❌ Error while generating XML: {str(e)}")
-```
