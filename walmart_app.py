@@ -7,6 +7,14 @@ import requests
 from datetime import datetime
 from io import StringIO
 
+# Sandbox API credentials
+CLIENT_ID = "21fbdc27-d571-496e-bddb-6e99029a630d"
+CLIENT_SECRET = "Y6vpggBcEWlY5OO23ewnYO2yctcPTo3m0abpoqMLWK-dklh34LyK961yTAAuTn5mGpIARtRE1qZqn-QD6V0hww"
+
+# Walmart token and feed endpoints (SANDBOX)
+TOKEN_URL = "https://sandbox.walmartapis.com/v3/token"
+FEED_URL = "https://sandbox.walmartapis.com/v3/feeds?feedType=MP_ITEM"
+
 # Master variations and prices
 MASTER_VARIATIONS = {
     "Newborn White Short Sleeve": 27.99,
@@ -82,57 +90,50 @@ def build_walmart_xml(file_content):
     return filename
 
 def get_access_token():
-    url = "https://marketplace.walmartapis.com/v3/token"
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "clientId": CLIENT_ID,
+        "clientSecret": CLIENT_SECRET
     }
-    data = {
-        "grant_type": "client_credentials",
-        "client_id": "21fbdc27-d571-496e-bddb-6e99029a630d",
-        "client_secret": "Y6vpggBcEWlY5OO23ewnYO2yctcPTo3m0abpoqMLWK-dklh34LyK961yTAAuTn5mGpIARtRE1qZqn-QD6V0hww"
-    }
-    response = requests.post(url, headers=headers, data=data)
-    if response.status_code != 200:
+    response = requests.post(TOKEN_URL, headers=headers, json=payload)
+    if response.status_code == 200:
+        return response.json().get("access_token")
+    else:
         raise Exception(f"Token error {response.status_code}: {response.text}")
-    try:
-        return response.json()["access_token"]
-    except ValueError:
-        raise Exception("Invalid JSON in token response")
 
-def submit_feed_to_walmart(file_path):
-    access_token = get_access_token()
-    url = "https://marketplace.walmartapis.com/v3/feeds?feedType=MP_ITEM"
-    headers = {
-        "WM_SVC.NAME": "Walmart Marketplace",
-        "WM_QOS.CORRELATION_ID": str(random.randint(100000, 999999)),
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/xml",
-        "Content-Type": "application/xml"
-    }
-    with open(file_path, "rb") as file:
-        response = requests.post(url, headers=headers, data=file.read())
-    if response.status_code != 202:
-        raise Exception(f"Feed submission failed {response.status_code}: {response.text}")
-    return response.text
+def submit_feed_to_walmart(xml_file):
+    token = get_access_token()
+    with open(xml_file, "rb") as f:
+        headers = {
+            "WM_SVC.NAME": "Walmart Marketplace",
+            "WM_QOS.CORRELATION_ID": "abc123",
+            "WM_SEC.ACCESS_TOKEN": token,
+            "Content-Type": "application/xml",
+            "Accept": "application/xml"
+        }
+        response = requests.post(FEED_URL, headers=headers, data=f.read())
+        return response.status_code, response.text
 
 # Streamlit UI
-st.title("🍼 Shopify to Walmart XML Generator + Submitter")
+st.title("🍼 Shopify to Walmart XML + API Submitter")
 st.markdown("Upload your **Shopify Product CSV** below. All variations will be replaced with your master variation set.")
 
 uploaded_file = st.file_uploader("📤 Upload Shopify CSV", type=["csv"])
 if uploaded_file is not None:
-    with st.spinner("Processing XML..."):
+    with st.spinner("🔄 Generating XML..."):
         try:
             output_file = build_walmart_xml(uploaded_file.read())
             with open(output_file, "rb") as f:
-                st.success("✅ Walmart XML file generated!")
+                st.success("✅ Walmart XML generated!")
                 st.download_button("📥 Download Walmart XML", f, file_name=output_file)
 
             if st.button("🚀 Submit to Walmart API"):
-                with st.spinner("Submitting to Walmart..."):
-                    result = submit_feed_to_walmart(output_file)
-                    st.success("✅ Submitted to Walmart!")
-                    st.code(result)
-
+                with st.spinner("Submitting to Walmart API..."):
+                    status, response = submit_feed_to_walmart(output_file)
+                    if status == 200:
+                        st.success("✅ Feed submitted to Walmart!")
+                        st.code(response, language="xml")
+                    else:
+                        st.error(f"❌ Error: {response}")
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
