@@ -110,14 +110,14 @@ def submit_to_walmart_api(file_path):
     if not token:
         return False, "❌ Auth Failed (no access_token in response)"
 
-    correlation_id = str(random.randint(100000, 999999))
+    correlation_id = str(random.randint(1000000000000, 9999999999999))
     headers = {
         "WM_SVC.NAME": "Walmart Marketplace",
         "WM_QOS.CORRELATION_ID": correlation_id,
         "WM_SEC.ACCESS_TOKEN": token,
         "WM_CONSUMER.CHANNEL.TYPE": CONSUMER_CHANNEL_TYPE,
-        "Accept": "application/xml",
-        "Content-Type": "application/xml"
+        "Content-Type": "application/xml",
+        "Accept": "application/xml"
     }
 
     with open(file_path, "rb") as file:
