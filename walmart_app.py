@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import csv
 import xml.etree.ElementTree as ET
@@ -110,33 +111,41 @@ def build_walmart_xml(file_content):
 
 def submit_to_walmart_api(file_path):
     token_url = "https://marketplace.walmartapis.com/v3/token"
-    creds = {
-        "grant_type": "client_credentials",
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET
-    }
 
-    response = requests.post(token_url, data=creds)
-    if response.status_code != 200:
-        return False, "❌ Auth Failed"
+    # 1) Request OAuth token via Basic Auth
+    token_data = {"grant_type": "client_credentials"}
+    token_headers = {"Accept": "application/json"}
+    resp = requests.post(
+        token_url,
+        data=token_data,
+        auth=(CLIENT_ID, CLIENT_SECRET),
+        headers=token_headers
+    )
 
-    token = response.json().get("access_token", "")
+    if resp.status_code != 200:
+        return False, f"❌ Auth Failed (status {resp.status_code}): {resp.text}"
+
+    token = resp.json().get("access_token")
+    if not token:
+        return False, "❌ Auth Failed (no access_token in response)"
+
+    # 2) Build headers for feed submission
     headers = {
-        "WM_SVC.NAME": "Walmart Marketplace",
-        "WM_QOS.CORRELATION_ID": str(random.randint(100000, 999999)),
-        "WM_SEC.ACCESS_TOKEN": token,
+        "WM_SVC.NAME":             "Walmart Marketplace",
+        "WM_QOS.CORRELATION_ID":   str(random.randint(100000, 999999)),
+        "WM_SEC.ACCESS_TOKEN":     token,
         "WM_CONSUMER.CHANNEL.TYPE": CONSUMER_CHANNEL_TYPE,
-        "Accept": "application/xml",
-        "Content-Type": "application/xml"
+        "Accept":                  "application/xml",
+        "Content-Type":            "application/xml"
     }
 
-    with open(file_path, "rb") as file:
-        post = requests.post(WALMART_FEED_URL, data=file.read(), headers=headers)
+    # 3) POST XML bytes to Walmart
+    with open(file_path, "rb") as fp:
+        post_resp = requests.post(WALMART_FEED_URL, data=fp.read(), headers=headers)
 
-    # Walmart may return 200 or 201 on success; treat both as success
-    if post.status_code in (200, 201):
+    if post_resp.status_code in (200, 201):
         return True, "✅ Submitted to Walmart API"
-    return False, f"❌ Submission Failed: {post.status_code} - {post.text}"
+    return False, f"❌ Submission Failed (status {post_resp.status_code}): {post_resp.text}"
 
 # ========== STREAMLIT UI ==========
 st.set_page_config(page_title="Walmart Feed Generator", layout="centered")
@@ -151,12 +160,11 @@ if uploaded_file:
             with open(output_file, "rb") as f:
                 st.success("✅ XML generated!")
                 st.download_button(
-                    "📥 Download XML", 
-                    f, 
-                    file_name=output_file, 
+                    "📥 Download XML",
+                    f,
+                    file_name=output_file,
                     mime="application/xml"
                 )
-            # Show submission button after XML has been generated
             if st.button("📡 Submit to Walmart API"):
                 with st.spinner("Submitting to Walmart API..."):
                     success, msg = submit_to_walmart_api(output_file)
@@ -166,3 +174,4 @@ if uploaded_file:
                         st.error(msg)
         except Exception as e:
             st.error(f"❌ Error while generating XML: {str(e)}")
+```
