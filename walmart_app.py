@@ -98,29 +98,31 @@ def build_walmart_xml(file_content):
     return filename
 
 def submit_to_walmart_api(file_path):
+    # 1. Get OAuth Token
     token_url = "https://marketplace.walmartapis.com/v3/token"
     token_data = {"grant_type": "client_credentials"}
     token_headers = {"Accept": "application/json"}
 
     response = requests.post(token_url, data=token_data, headers=token_headers, auth=(CLIENT_ID, CLIENT_SECRET))
     if response.status_code != 200:
-        return False, f"❌ Auth Failed (status {response.status_code}): {response.text}"
+        return False, f"❌ Auth Failed (token request failed {response.status_code}): {response.text}"
 
     token = response.json().get("access_token")
     if not token:
-        return False, "❌ Auth Failed (no access_token in response)"
+        return False, "❌ Auth Failed: access_token not found in response"
 
-    correlation_id = str(random.randint(1000000000000, 9999999999999))
+    # 2. Prepare correct WM headers for feed submission
+    correlation_id = str(random.randint(100000, 999999))
     headers = {
         "WM_SVC.NAME": "Walmart Marketplace",
         "WM_QOS.CORRELATION_ID": correlation_id,
         "WM_SEC.ACCESS_TOKEN": token,
         "WM_CONSUMER.CHANNEL.TYPE": CONSUMER_CHANNEL_TYPE,
-        "Content-Type": "application/xml",
-        "Accept": "application/xml"
+        "Accept": "application/xml",
+        "Content-Type": "application/xml"
     }
 
-    # Use a raw prepared request to preserve header case
+    # 3. Submit feed using manually prepared request to preserve header casing
     session = requests.Session()
     with open(file_path, "rb") as xml_file:
         request = requests.Request(
@@ -129,10 +131,9 @@ def submit_to_walmart_api(file_path):
             headers=headers,
             data=xml_file.read()
         )
-        prepped = session.prepare_request(request)
-        prepped.headers = headers  # force exact casing
-
-        response = session.send(prepped)
+        prepared = session.prepare_request(request)
+        prepared.headers = headers  # enforce exact casing
+        response = session.send(prepared)
 
     if response.status_code in (200, 201):
         return True, "✅ Submitted to Walmart API"
