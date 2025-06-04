@@ -1,25 +1,21 @@
 import streamlit as st
 import csv
-import xml.etree.ElementTree as ET
-import random
-import os
+import base64
 import requests
-from datetime import datetime
+import xml.etree.ElementTree as ET
 from io import StringIO
 
-# Sandbox API credentials
+# 🔐 SANDBOX CREDENTIALS
 CLIENT_ID = "21fbdc27-d571-496e-bddb-6e99029a630d"
 CLIENT_SECRET = "Y6vpggBcEWlY5OO23ewnYO2yctcPTo3m0abpoqMLWK-dklh34LyK961yTAAuTn5mGpIARtRE1qZqn-QD6V0hww"
-
-# Walmart token and feed endpoints (SANDBOX)
 TOKEN_URL = "https://sandbox.walmartapis.com/v3/token"
-FEED_URL = "https://sandbox.walmartapis.com/v3/feeds?feedType=MP_ITEM"
+SUBMIT_FEED_URL = "https://sandbox.walmartapis.com/v3/feeds?feedType=item"
 
-# Master variations and prices
-MASTER_VARIATIONS = {
+# 🔁 Your fixed variation set
+VARIATIONS = {
     "Newborn White Short Sleeve": 27.99,
     "Newborn White Long Sleeve": 28.99,
-    "Newborn (0-3M) Natural Short Sleeve": 31.99,
+    "Newborn Natural Short Sleeve": 31.99,
     "0-3M White Short Sleeve": 27.99,
     "0-3M White Long Sleeve": 28.99,
     "0-3M Pink Short Sleeve": 31.99,
@@ -28,112 +24,99 @@ MASTER_VARIATIONS = {
     "3-6M White Long Sleeve": 28.99,
     "3-6M Pink Short Sleeve": 31.99,
     "3-6M Blue Short Sleeve": 31.99,
+    "6M Natural Short Sleeve": 31.99,
     "6-9M White Short Sleeve": 27.99,
-    "6M Natural Short Sleeve": 31.99
+    "6-9M White Long Sleeve": 28.99,
+    "6-9M Pink Short Sleeve": 31.99,
+    "6-9M Blue Short Sleeve": 31.99,
+    "12M White Short Sleeve": 27.99,
+    "12M White Long Sleeve": 28.99,
+    "12M Natural Short Sleeve": 31.99,
+    "12M Pink Short Sleeve": 31.99,
+    "12M Blue Short Sleeve": 31.99,
+    "18M White Short Sleeve": 27.99,
+    "18M White Long Sleeve": 28.99,
+    "18M Natural Short Sleeve": 31.99,
+    "24M White Short Sleeve": 27.99,
+    "24M White Long Sleeve": 28.99,
+    "24M Natural Short Sleeve": 31.99
 }
 
-ADDITIONAL_IMAGE_URLS = [
-    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/12efccc074d5a78e78e3e0be1150e85c5302d855_39118440-7324-4737-a9b6-9bc4e9dab73d.jpg?v=1740931622",
-    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/9db0001144fa518c97c29ab557af269feae90acd_32129b22-54df-4f68-8da7-30b93a0e85cc.jpg?v=1740931622",
-    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/2111f30dfd441733c577311e723de977c5c4bdce_07aeb493-bfd6-40d8-809d-709037313156.jpg?v=1740931622",
-    "https://cdn.shopify.com/s/files/1/0545/2018/5017/files/1a38365ed663e060d2590b04a0ec16b00004fe45_f8aaa5cc-0182-4bf8-9ada-860c6d175f25.jpg?v=1740931622"
-]
-
-def generate_sku(title, variation):
-    base = ''.join(e for e in title if e.isalnum())[:25]
-    color = next((c for c in ["White", "Pink", "Blue", "Natural"] if c in variation), "X")
-    size = variation.split()[0].replace("(", "").replace(")", "").replace("M", "M").replace("Newborn", "NB").replace("6-9M", "6_9M").replace("6M", "6M")
-    sleeve = "Long" if "Long" in variation else "Short"
-    rand = random.randint(100, 999)
-    return f"{base}-{size}-{color}-{sleeve}-{rand}"
-
-def build_walmart_xml(file_content):
-    tree = ET.Element("WalmartEnvelope")
-    ET.SubElement(tree, "xmlns").text = "http://walmart.com/"
-    header = ET.SubElement(tree, "Header")
-    ET.SubElement(header, "version").text = "1.4"
-    ET.SubElement(header, "requestId").text = "123456789"
-    ET.SubElement(header, "requestType").text = "MP_ITEM"
-    feed_header = ET.SubElement(tree, "MPItemFeedHeader")
-    ET.SubElement(feed_header, "locale").text = "en"
-    ET.SubElement(feed_header, "sellingChannel").text = "marketplace"
-
-    reader = csv.DictReader(StringIO(file_content.decode("utf-8")))
-    for row in reader:
-        title = row["Title"].strip()
-        image = row["Image Src"].strip()
-
-        for variation, price in MASTER_VARIATIONS.items():
-            sku = generate_sku(title, variation)
-            mp_item = ET.SubElement(tree, "MPItem")
-            ET.SubElement(mp_item, "sku").text = sku
-            ET.SubElement(mp_item, "productName").text = f"{title} - {variation}"
-            ET.SubElement(mp_item, "productId").text = "EXEMPT"
-            ET.SubElement(mp_item, "productIdType").text = "GTIN"
-            ET.SubElement(mp_item, "price").text = f"{price:.2f}"
-            ET.SubElement(mp_item, "productTaxCode").text = "2038710"
-            ET.SubElement(mp_item, "category").text = "Baby > Apparel > Bodysuits"
-            ET.SubElement(mp_item, "description").text = f"Funny baby bodysuit: {title}"
-            ET.SubElement(mp_item, "brand").text = "NOFO VIBES"
-            ET.SubElement(mp_item, "mainImageUrl").text = image
-            for i, url in enumerate(ADDITIONAL_IMAGE_URLS):
-                ET.SubElement(mp_item, f"additionalImageUrl{i+1}").text = url
-            ET.SubElement(mp_item, "shippingWeight").text = "0.2 lb"
-            ET.SubElement(mp_item, "fulfillmentLagTime").text = "2"
-            ET.SubElement(mp_item, "productType").text = "Clothing"
-            ET.SubElement(mp_item, "minAdvertisedPrice").text = f"{price:.2f}"
-            ET.SubElement(mp_item, "mustShipAlone").text = "No"
-            ET.SubElement(mp_item, "quantity").text = str(999)
-
-    filename = f"walmart_feed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xml"
-    ET.ElementTree(tree).write(filename, encoding="utf-8", xml_declaration=True)
-    return filename
-
-def get_access_token():
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "clientId": CLIENT_ID,
-        "clientSecret": CLIENT_SECRET
+# 🚪 Token retrieval with proper Basic auth
+def get_walmart_token():
+    credentials = f"{CLIENT_ID}:{CLIENT_SECRET}"
+    encoded = base64.b64encode(credentials.encode()).decode()
+    headers = {
+        "Authorization": f"Basic {encoded}",
+        "Content-Type": "application/x-www-form-urlencoded"
     }
-    response = requests.post(TOKEN_URL, headers=headers, json=payload)
-    if response.status_code == 200:
-        return response.json().get("access_token")
+    data = {"grant_type": "client_credentials"}
+
+    res = requests.post(TOKEN_URL, headers=headers, data=data)
+    if res.status_code == 200:
+        return res.json().get("access_token")
     else:
-        raise Exception(f"Token error {response.status_code}: {response.text}")
+        st.error(f"❌ Auth Failed ({res.status_code}): {res.text}")
+        return None
 
-def submit_feed_to_walmart(xml_file):
-    token = get_access_token()
-    with open(xml_file, "rb") as f:
-        headers = {
-            "WM_SVC.NAME": "Walmart Marketplace",
-            "WM_QOS.CORRELATION_ID": "abc123",
-            "WM_SEC.ACCESS_TOKEN": token,
-            "Content-Type": "application/xml",
-            "Accept": "application/xml"
-        }
-        response = requests.post(FEED_URL, headers=headers, data=f.read())
-        return response.status_code, response.text
+# 📦 Build the Walmart-compatible XML
+def generate_xml(product_title):
+    root = ET.Element("ItemFeed", xmlns="http://walmart.com/")
 
-# Streamlit UI
-st.title("🍼 Shopify to Walmart XML + API Submitter")
-st.markdown("Upload your **Shopify Product CSV** below. All variations will be replaced with your master variation set.")
+    for variant, price in VARIATIONS.items():
+        item = ET.SubElement(root, "MPItem")
+        sku = f"{product_title.replace(' ', '')}-{variant.replace(' ', '').replace('(', '').replace(')', '')}"
+        ET.SubElement(item, "sku").text = sku
+        ET.SubElement(item, "productName").text = f"{product_title} - {variant}"
+        ET.SubElement(item, "productType").text = "BabyClothing"
+        ET.SubElement(item, "price").text = str(price)
+        ET.SubElement(item, "brand").text = "NOFO VIBES"
+        ET.SubElement(item, "productIdType").text = "GTIN"
+        ET.SubElement(item, "productId").text = "000000000000"
+        ET.SubElement(item, "mainImageUrl").text = "https://cdn.shopify.com/sample.jpg"
+        ET.SubElement(item, "shippingWeight").text = "0.3"
+        ET.SubElement(item, "unit").text = "lb"
 
-uploaded_file = st.file_uploader("📤 Upload Shopify CSV", type=["csv"])
-if uploaded_file is not None:
-    with st.spinner("🔄 Generating XML..."):
-        try:
-            output_file = build_walmart_xml(uploaded_file.read())
-            with open(output_file, "rb") as f:
-                st.success("✅ Walmart XML generated!")
-                st.download_button("📥 Download Walmart XML", f, file_name=output_file)
+    return ET.ElementTree(root)
 
-            if st.button("🚀 Submit to Walmart API"):
-                with st.spinner("Submitting to Walmart API..."):
-                    status, response = submit_feed_to_walmart(output_file)
-                    if status == 200:
-                        st.success("✅ Feed submitted to Walmart!")
-                        st.code(response, language="xml")
-                    else:
-                        st.error(f"❌ Error: {response}")
-        except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
+# 📤 Feed submission with all required headers
+def submit_feed(xml_str, token):
+    headers = {
+        "WM_SVC.NAME": "Walmart Marketplace",
+        "WM_QOS.CORRELATION_ID": "test-correlation-id",
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/xml"
+    }
+    res = requests.post(SUBMIT_FEED_URL, headers=headers, data=xml_str)
+    if res.status_code == 202:
+        st.success("✅ Feed successfully submitted to Walmart Sandbox!")
+        st.code(res.text)
+    else:
+        st.error(f"❌ Feed submission failed ({res.status_code}):\n{res.text}")
+
+# 🌐 Streamlit UI
+st.title("🍼 Walmart XML Generator (Sandbox Mode)")
+uploaded = st.file_uploader("Upload your Shopify CSV", type=["csv"])
+
+if uploaded:
+    content = uploaded.read().decode("utf-8")
+    reader = csv.reader(StringIO(content))
+    rows = list(reader)
+
+    if len(rows) < 2:
+        st.error("❌ File missing product row.")
+    else:
+        title = rows[1][1].split("-")[0].strip()
+        st.info(f"🧷 Title: **{title}**")
+
+        xml_tree = generate_xml(title)
+        xml_io = StringIO()
+        xml_tree.write(xml_io, encoding="unicode", xml_declaration=True)
+        xml_text = xml_io.getvalue()
+
+        st.download_button("📥 Download XML", xml_text, "walmart_feed.xml")
+
+        if st.button("🚀 Submit to Walmart Sandbox"):
+            token = get_walmart_token()
+            if token:
+                submit_feed(xml_text, token)
