@@ -3,10 +3,17 @@ import csv
 import xml.etree.ElementTree as ET
 import random
 import os
+import requests
 from datetime import datetime
 from io import StringIO
 
-# Master variations and prices
+# ========== CONFIG ==========
+CLIENT_ID = "8206856f-c686-489f-b165-aa2126817d7c"
+CLIENT_SECRET = "APzv6aIPN_ss3AzSFPPTmprRanVeHtacgjIXguk99PqwJCgKx9OBDDVuPBZ8kmr1jh2BCGpq2pLSTZDeSDg91Oo"
+CONSUMER_CHANNEL_TYPE = "9f3ce7f5-d168-4f2d-b7a2-e46d7a39cb17"
+WALMART_FEED_URL = "https://marketplace.walmartapis.com/v3/feeds?feedType=MP_ITEM"
+
+# ========== MASTER VARIATIONS ==========
 MASTER_VARIATIONS = {
     "Newborn White Short Sleeve": 27.99,
     "Newborn White Long Sleeve": 28.99,
@@ -31,16 +38,23 @@ ADDITIONAL_IMAGE_URLS = [
 ]
 
 def generate_sku(title, variation):
-    base = ''.join(e for e in title if e.isalnum())[:25]
+    base = ''.join(e for e in title if e.isalnum())[:30]
     color = next((c for c in ["White", "Pink", "Blue", "Natural"] if c in variation), "X")
-    size = variation.split()[0].replace("(", "").replace(")", "").replace("M", "M").replace("Newborn", "NB").replace("6-9M", "6_9M").replace("6M", "6M")
+    size_part = variation.split()[0]
+    size = (
+        size_part
+        .replace("(", "")
+        .replace(")", "")
+        .replace("Newborn", "NB")
+        .replace("6-9M", "6_9M")
+        .replace("6M", "6M")
+    )
     sleeve = "Long" if "Long" in variation else "Short"
     rand = random.randint(100, 999)
-    return f"{base}-{size}-{color}-{sleeve}-{rand}"
+    return f"{base}-{size}-{color}-{sleeve}-{rand}"[:50]
 
 def build_walmart_xml(file_content):
-    tree = ET.Element("WalmartEnvelope")
-    ET.SubElement(tree, "xmlns").text = "http://walmart.com/"
+    tree = ET.Element("WalmartEnvelope", xmlns="http://walmart.com/")
     header = ET.SubElement(tree, "Header")
     ET.SubElement(header, "version").text = "1.4"
     ET.SubElement(header, "requestId").text = "123456789"
@@ -64,7 +78,21 @@ def build_walmart_xml(file_content):
             ET.SubElement(mp_item, "price").text = f"{price:.2f}"
             ET.SubElement(mp_item, "productTaxCode").text = "2038710"
             ET.SubElement(mp_item, "category").text = "Baby > Apparel > Bodysuits"
-            ET.SubElement(mp_item, "description").text = f"Funny baby bodysuit: {title}"
+            ET.SubElement(mp_item, "description").text = (
+                "Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit, the perfect baby shower gift that will be cherished for years to come. "
+                "This charming piece of baby clothing is an ideal new baby gift for welcoming a newborn into the world. Whether it's for a baby announcement, a pregnancy reveal, "
+                "or a special baby shower, this baby bodysuit is sure to delight. Our Custom Baby Bodysuit features a playful and cute design, perfect for showcasing your baby's "
+                "unique personality. Made with love and care, this baby bodysuit is designed to keep your baby comfortable and stylish. It's an essential item in cute baby clothes, "
+                "making it a standout piece for any new arrival. Perfect for both baby boys and girls, this versatile baby bodysuit is soft, comfortable, and durable, ensuring it "
+                "can withstand numerous washes. The easy-to-use snaps make changing a breeze, providing convenience for busy parents. Whether you're looking for a personalized baby "
+                "bodysuit, a funny baby bodysuit, or a cute baby bodysuit, this Custom Baby Bodysuit has it all. It’s ideal for celebrating the excitement of a new baby, featuring "
+                "charming and customizable designs. This makes it a fantastic option for funny baby clothes that bring a smile to everyone's face. Imagine gifting this delightful baby "
+                "bodysuit at a baby shower or using it as a memorable baby announcement or pregnancy reveal. It’s perfect for anyone searching for a unique baby gift, announcement "
+                "baby bodysuit, or a special new baby bodysuit. This baby bodysuit is not just an item of clothing; it’s a keepsake that celebrates the joy and wonder of a new life. "
+                "From baby boy clothes to baby girl clothes, this baby bodysuit is perfect for any newborn. Whether it’s a boho design, a Fathers Day gift, or custom baby clothes, "
+                "this piece is a wonderful addition to any baby's wardrobe. Get this Custom Baby Bodysuit today and let your little one showcase their personality in the cutest way possible. "
+                "It's the ideal gift for a new baby, perfect for any occasion from baby showers to baby announcements. Celebrate the joy of a new life with this charming and meaningful baby bodysuit."
+            )
             ET.SubElement(mp_item, "brand").text = "NOFO VIBES"
             ET.SubElement(mp_item, "mainImageUrl").text = image
             for i, url in enumerate(ADDITIONAL_IMAGE_URLS):
@@ -74,23 +102,67 @@ def build_walmart_xml(file_content):
             ET.SubElement(mp_item, "productType").text = "Clothing"
             ET.SubElement(mp_item, "minAdvertisedPrice").text = f"{price:.2f}"
             ET.SubElement(mp_item, "mustShipAlone").text = "No"
-            ET.SubElement(mp_item, "quantity").text = str(999)
+            ET.SubElement(mp_item, "quantity").text = "999"
 
     filename = f"walmart_feed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xml"
     ET.ElementTree(tree).write(filename, encoding="utf-8", xml_declaration=True)
     return filename
 
-# Streamlit UI
-st.title("🍼 Shopify to Walmart XML Generator")
-st.markdown("Upload your **Shopify Product CSV** below. All variations will be replaced with your master variation set.")
+def submit_to_walmart_api(file_path):
+    token_url = "https://marketplace.walmartapis.com/v3/token"
+    creds = {
+        "grant_type": "client_credentials",
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET
+    }
 
-uploaded_file = st.file_uploader("📤 Upload Shopify CSV", type=["csv"])
-if uploaded_file is not None:
-    with st.spinner("Processing..."):
+    response = requests.post(token_url, data=creds)
+    if response.status_code != 200:
+        return False, "❌ Auth Failed"
+
+    token = response.json().get("access_token", "")
+    headers = {
+        "WM_SVC.NAME": "Walmart Marketplace",
+        "WM_QOS.CORRELATION_ID": str(random.randint(100000, 999999)),
+        "WM_SEC.ACCESS_TOKEN": token,
+        "WM_CONSUMER.CHANNEL.TYPE": CONSUMER_CHANNEL_TYPE,
+        "Accept": "application/xml",
+        "Content-Type": "application/xml"
+    }
+
+    with open(file_path, "rb") as file:
+        post = requests.post(WALMART_FEED_URL, data=file.read(), headers=headers)
+
+    # Walmart may return 200 or 201 on success; treat both as success
+    if post.status_code in (200, 201):
+        return True, "✅ Submitted to Walmart API"
+    return False, f"❌ Submission Failed: {post.status_code} - {post.text}"
+
+# ========== STREAMLIT UI ==========
+st.set_page_config(page_title="Walmart Feed Generator", layout="centered")
+st.title("🍼 Shopify → Walmart XML + API")
+st.markdown("Upload a Shopify CSV → Generate XML → Submit to Walmart API")
+
+uploaded_file = st.file_uploader("📤 Upload your Shopify product CSV", type=["csv"])
+if uploaded_file:
+    with st.spinner("Generating Walmart XML..."):
         try:
             output_file = build_walmart_xml(uploaded_file.read())
             with open(output_file, "rb") as f:
-                st.success("✅ Walmart XML file generated!")
-                st.download_button("📥 Download Walmart XML", f, file_name=output_file)
+                st.success("✅ XML generated!")
+                st.download_button(
+                    "📥 Download XML", 
+                    f, 
+                    file_name=output_file, 
+                    mime="application/xml"
+                )
+            # Show submission button after XML has been generated
+            if st.button("📡 Submit to Walmart API"):
+                with st.spinner("Submitting to Walmart API..."):
+                    success, msg = submit_to_walmart_api(output_file)
+                    if success:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
         except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
+            st.error(f"❌ Error while generating XML: {str(e)}")
