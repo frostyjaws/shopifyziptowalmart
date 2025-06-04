@@ -1,17 +1,16 @@
-import requests
-import xml.etree.ElementTree as ET
+import streamlit as st
 import csv
+import xml.etree.ElementTree as ET
 import random
+import requests
 from datetime import datetime
 from io import StringIO
 
-# Sandbox API credentials
-CLIENT_ID = '21fbdc27-d571-496e-bddb-6e99029a630d'
-CLIENT_SECRET = 'Y6vpggBcEWlY5OO23ewnYO2yctcPTo3m0abpoqMLWK-dklh34LyK961yTAAuTn5mGpIARtRE1qZqn-QD6V0hww'
-
-# Walmart Sandbox API endpoints
-TOKEN_URL = 'https://sandbox.walmartapis.com/v3/token'
-FEED_URL = 'https://sandbox.walmartapis.com/v3/feeds?feedType=MP_ITEM'
+# Sandbox API Credentials
+CLIENT_ID = "21fbdc27-d571-496e-bddb-6e99029a630d"
+CLIENT_SECRET = "Y6vpggBcEWlY5OO23ewnYO2yctcPTo3m0abpoqMLWK-dklh34LyK961yTAAuTn5mGpIARtRE1qZqn-QD6V0hww"
+TOKEN_URL = "https://marketplace.walmartapis.com/v3/token"
+SUBMIT_FEED_URL = "https://marketplace.walmartapis.com/v3/feeds?feedType=MP_ITEM"
 
 # Master variations and prices
 MASTER_VARIATIONS = {
@@ -40,7 +39,7 @@ ADDITIONAL_IMAGE_URLS = [
 def generate_sku(title, variation):
     base = ''.join(e for e in title if e.isalnum())[:25]
     color = next((c for c in ["White", "Pink", "Blue", "Natural"] if c in variation), "X")
-    size = variation.split()[0].replace("(", "").replace(")", "").replace("M", "M").replace("Newborn", "NB").replace("6-9M", "6_9M").replace("6M", "6M")
+    size = variation.split()[0].replace("(", "").replace(")", "").replace("Newborn", "NB").replace("6-9M", "6_9M").replace("6M", "6M")
     sleeve = "Long" if "Long" in variation else "Short"
     rand = random.randint(100, 999)
     return f"{base}-{size}-{color}-{sleeve}-{rand}"
@@ -88,48 +87,46 @@ def build_walmart_xml(file_content):
     return filename
 
 def get_access_token():
-    headers = {
-        'Content-Type': 'application/x-www-form-urlencoded'
-    }
-    data = {
-        'grant_type': 'client_credentials',
-        'client_id': CLIENT_ID,
-        'client_secret': CLIENT_SECRET
-    }
-    response = requests.post(TOKEN_URL, headers=headers, data=data)
-    response.raise_for_status()
-    return response.json()['access_token']
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    data = {"grant_type": "client_credentials"}
+    response = requests.post(TOKEN_URL, headers=headers, auth=(CLIENT_ID, CLIENT_SECRET), data=data)
+    return response.json().get("access_token")
 
-def submit_feed(xml_file_path, access_token):
+def submit_to_walmart(xml_file, token):
     headers = {
-        'WM_SVC.NAME': 'Walmart Marketplace',
-        'WM_QOS.CORRELATION_ID': '123456abcdef',
-        'Authorization': f'Bearer {access_token}',
-        'Accept': 'application/xml',
-        'Content-Type': 'application/xml'
+        "WM_SVC.NAME": "Walmart Marketplace",
+        "WM_QOS.CORRELATION_ID": "123456abcdef",
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/xml",
+        "Content-Type": "application/xml"
     }
-    with open(xml_file_path, 'rb') as file:
-        response = requests.post(FEED_URL, headers=headers, data=file)
-    response.raise_for_status()
-    return response.json()
+    with open(xml_file, "rb") as f:
+        return requests.post(SUBMIT_FEED_URL, headers=headers, data=f.read())
 
-def check_feed_status(feed_id, access_token):
-    status_url = f'https://sandbox.walmartapis.com/v3/feeds/{feed_id}'
-    headers = {
-        'WM_SVC.NAME': 'Walmart Marketplace',
-        'WM_QOS.CORRELATION_ID': '123456abcdef',
-        'Authorization': f'Bearer {access_token}',
-        'Accept': 'application/json'
-    }
-    response = requests.get(status_url, headers=headers)
-    response.raise_for_status()
-    return response.json()
+# Streamlit UI
+st.title("🍼 Shopify to Walmart XML Generator + Submitter")
+st.markdown("Upload your **Shopify Product CSV** below. All variations will be replaced with your master variation set.")
 
-# Example usage:
-# file_content = open('your_shopify_csv.csv', 'rb').read()
-# xml_file = build_walmart_xml(file_content)
-# token = get_access_token()
-# submission_response = submit_feed(xml_file, token)
-# feed_id = submission_response['feedId']
-# status = check_feed_status(feed_id, token)
-# print(status)
+uploaded_file = st.file_uploader("📤 Upload Shopify CSV", type=["csv"])
+
+if uploaded_file is not None:
+    with st.spinner("Generating Walmart XML file..."):
+        try:
+            xml_filename = build_walmart_xml(uploaded_file.read())
+            st.success("✅ Walmart XML file generated!")
+            with open(xml_filename, "rb") as f:
+                st.download_button("📥 Download Walmart XML", f, file_name=xml_filename)
+
+            if st.button("🚀 Submit to Walmart API"):
+                with st.spinner("Submitting feed to Walmart Sandbox API..."):
+                    token = get_access_token()
+                    response = submit_to_walmart(xml_filename, token)
+                    if response.status_code == 202:
+                        st.success("✅ Feed submitted successfully!")
+                        st.code(response.text)
+                    else:
+                        st.error(f"❌ Submission failed with status {response.status_code}")
+                        st.code(response.text)
+
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
