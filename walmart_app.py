@@ -40,15 +40,7 @@ ADDITIONAL_IMAGE_URLS = [
 def generate_sku(title, variation):
     base = ''.join(e for e in title if e.isalnum())[:30]
     color = next((c for c in ["White", "Pink", "Blue", "Natural"] if c in variation), "X")
-    size_part = variation.split()[0]
-    size = (
-        size_part
-        .replace("(", "")
-        .replace(")", "")
-        .replace("Newborn", "NB")
-        .replace("6-9M", "6_9M")
-        .replace("6M", "6M")
-    )
+    size = variation.split()[0].replace("(", "").replace(")", "").replace("M", "M").replace("Newborn", "NB").replace("6-9M", "6_9M").replace("6M", "6M")
     sleeve = "Long" if "Long" in variation else "Short"
     rand = random.randint(100, 999)
     return f"{base}-{size}-{color}-{sleeve}-{rand}"[:50]
@@ -79,8 +71,7 @@ def build_walmart_xml(file_content):
             ET.SubElement(mp_item, "productTaxCode").text = "2038710"
             ET.SubElement(mp_item, "category").text = "Baby > Apparel > Bodysuits"
             ET.SubElement(mp_item, "description").text = (
-                "Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit. "
-                "Made with love and care, this bodysuit is soft, comfortable, and perfect for newborns."
+                "Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit..."
             )
             ET.SubElement(mp_item, "brand").text = "NOFO VIBES"
             ET.SubElement(mp_item, "mainImageUrl").text = image
@@ -98,55 +89,33 @@ def build_walmart_xml(file_content):
     return filename
 
 def submit_to_walmart_api(file_path):
-    # Step 1: Get token WITHOUT WM_ headers
     token_url = "https://marketplace.walmartapis.com/v3/token"
-    token_data = {"grant_type": "client_credentials"}
-    token_headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/x-www-form-urlencoded"
+    creds = {
+        "grant_type": "client_credentials",
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET
     }
 
-    token_response = requests.post(
-        token_url,
-        data=token_data,
-        headers=token_headers,
-        auth=(CLIENT_ID, CLIENT_SECRET)
-    )
+    response = requests.post(token_url, data=creds)
+    if response.status_code != 200:
+        return False, f"❌ Auth Failed (token request failed {response.status_code}): {response.text}"
 
-    if token_response.status_code != 200:
-        return False, f"❌ Auth Failed (token request failed {token_response.status_code}): {token_response.text}"
-
-    token = token_response.json().get("access_token")
-    if not token:
-        return False, "❌ Auth Failed: access_token not found in token response"
-
-    # Step 2: Set correct headers for feed submission
-    correlation_id = str(random.randint(100000, 999999))
-    submission_headers = {
+    token = response.json().get("access_token")
+    headers = {
         "WM_SVC.NAME": "Walmart Marketplace",
-        "WM_QOS.CORRELATION_ID": correlation_id,
+        "WM_QOS.CORRELATION_ID": str(random.randint(100000, 999999)),
         "WM_SEC.ACCESS_TOKEN": token,
         "WM_CONSUMER.CHANNEL.TYPE": CONSUMER_CHANNEL_TYPE,
         "Accept": "application/xml",
         "Content-Type": "application/xml"
     }
 
-    # Step 3: Submit feed using session to preserve header casing
     with open(file_path, "rb") as file:
-        session = requests.Session()
-        request = requests.Request(
-            "POST",
-            WALMART_FEED_URL,
-            headers=submission_headers,
-            data=file.read()
-        )
-        prepared = session.prepare_request(request)
-        prepared.headers = submission_headers  # reapply for exact casing
-        response = session.send(prepared)
+        post = requests.post(WALMART_FEED_URL, data=file.read(), headers=headers)
 
-    if response.status_code in (200, 201):
+    if post.status_code == 200:
         return True, "✅ Submitted to Walmart API"
-    return False, f"❌ Submission Failed (status {response.status_code}): {response.text}"
+    return False, f"❌ Submission Failed ({post.status_code}): {post.text}"
 
 # ========== STREAMLIT UI ==========
 st.set_page_config(page_title="Walmart Feed Generator", layout="centered")
@@ -160,18 +129,12 @@ if uploaded_file:
             output_file = build_walmart_xml(uploaded_file.read())
             with open(output_file, "rb") as f:
                 st.success("✅ XML generated!")
-                st.download_button(
-                    "📥 Download XML",
-                    f,
-                    file_name=output_file,
-                    mime="application/xml"
-                )
+                st.download_button("📥 Download XML", f, file_name=output_file)
             if st.button("📡 Submit to Walmart API"):
-                with st.spinner("Submitting to Walmart API..."):
-                    success, msg = submit_to_walmart_api(output_file)
-                    if success:
-                        st.success(msg)
-                    else:
-                        st.error(msg)
+                success, msg = submit_to_walmart_api(output_file)
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(msg)
         except Exception as e:
-            st.error(f"❌ Error while generating XML: {str(e)}")
+            st.error(f"❌ Error: {str(e)}")
