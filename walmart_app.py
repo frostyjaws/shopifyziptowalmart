@@ -79,9 +79,8 @@ def build_walmart_xml(file_content):
             ET.SubElement(mp_item, "productTaxCode").text = "2038710"
             ET.SubElement(mp_item, "category").text = "Baby > Apparel > Bodysuits"
             ET.SubElement(mp_item, "description").text = (
-                "Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit, the perfect baby shower gift that will be cherished for years to come. "
-                "Made with love and care, this baby bodysuit is designed to keep your baby comfortable and stylish. Whether you're looking for a personalized baby "
-                "bodysuit, a funny baby bodysuit, or a cute baby bodysuit, this Custom Baby Bodysuit has it all. It's the ideal gift for a new baby."
+                "Celebrate the arrival of your little one with our adorable Custom Baby Bodysuit. "
+                "Made with love and care, this bodysuit is soft, comfortable, and perfect for newborns."
             )
             ET.SubElement(mp_item, "brand").text = "NOFO VIBES"
             ET.SubElement(mp_item, "mainImageUrl").text = image
@@ -103,7 +102,6 @@ def submit_to_walmart_api(file_path):
     token_data = {"grant_type": "client_credentials"}
     token_headers = {"Accept": "application/json"}
 
-    # Use HTTP Basic Auth as required by Walmart
     response = requests.post(token_url, data=token_data, headers=token_headers, auth=(CLIENT_ID, CLIENT_SECRET))
     if response.status_code != 200:
         return False, f"❌ Auth Failed (status {response.status_code}): {response.text}"
@@ -112,9 +110,10 @@ def submit_to_walmart_api(file_path):
     if not token:
         return False, "❌ Auth Failed (no access_token in response)"
 
+    correlation_id = str(random.randint(100000, 999999))
     headers = {
         "WM_SVC.NAME": "Walmart Marketplace",
-        "WM_QOS.CORRELATION_ID": str(random.randint(100000, 999999)),
+        "WM_QOS.CORRELATION_ID": correlation_id,
         "WM_SEC.ACCESS_TOKEN": token,
         "WM_CONSUMER.CHANNEL.TYPE": CONSUMER_CHANNEL_TYPE,
         "Accept": "application/xml",
