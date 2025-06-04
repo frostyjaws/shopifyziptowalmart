@@ -2,15 +2,10 @@ import streamlit as st
 import csv
 import xml.etree.ElementTree as ET
 import random
+import os
 import requests
 from datetime import datetime
 from io import StringIO
-
-# Sandbox API Credentials
-CLIENT_ID = "21fbdc27-d571-496e-bddb-6e99029a630d"
-CLIENT_SECRET = "Y6vpggBcEWlY5OO23ewnYO2yctcPTo3m0abpoqMLWK-dklh34LyK961yTAAuTn5mGpIARtRE1qZqn-QD6V0hww"
-TOKEN_URL = "https://marketplace.walmartapis.com/v3/token"
-SUBMIT_FEED_URL = "https://marketplace.walmartapis.com/v3/feeds?feedType=MP_ITEM"
 
 # Master variations and prices
 MASTER_VARIATIONS = {
@@ -39,7 +34,7 @@ ADDITIONAL_IMAGE_URLS = [
 def generate_sku(title, variation):
     base = ''.join(e for e in title if e.isalnum())[:25]
     color = next((c for c in ["White", "Pink", "Blue", "Natural"] if c in variation), "X")
-    size = variation.split()[0].replace("(", "").replace(")", "").replace("Newborn", "NB").replace("6-9M", "6_9M").replace("6M", "6M")
+    size = variation.split()[0].replace("(", "").replace(")", "").replace("M", "M").replace("Newborn", "NB").replace("6-9M", "6_9M").replace("6M", "6M")
     sleeve = "Long" if "Long" in variation else "Short"
     rand = random.randint(100, 999)
     return f"{base}-{size}-{color}-{sleeve}-{rand}"
@@ -87,46 +82,57 @@ def build_walmart_xml(file_content):
     return filename
 
 def get_access_token():
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
-    data = {"grant_type": "client_credentials"}
-    response = requests.post(TOKEN_URL, headers=headers, auth=(CLIENT_ID, CLIENT_SECRET), data=data)
-    return response.json().get("access_token")
+    url = "https://marketplace.walmartapis.com/v3/token"
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": "21fbdc27-d571-496e-bddb-6e99029a630d",
+        "client_secret": "Y6vpggBcEWlY5OO23ewnYO2yctcPTo3m0abpoqMLWK-dklh34LyK961yTAAuTn5mGpIARtRE1qZqn-QD6V0hww"
+    }
+    response = requests.post(url, headers=headers, data=data)
+    if response.status_code != 200:
+        raise Exception(f"Token error {response.status_code}: {response.text}")
+    try:
+        return response.json()["access_token"]
+    except ValueError:
+        raise Exception("Invalid JSON in token response")
 
-def submit_to_walmart(xml_file, token):
+def submit_feed_to_walmart(file_path):
+    access_token = get_access_token()
+    url = "https://marketplace.walmartapis.com/v3/feeds?feedType=MP_ITEM"
     headers = {
         "WM_SVC.NAME": "Walmart Marketplace",
-        "WM_QOS.CORRELATION_ID": "123456abcdef",
-        "Authorization": f"Bearer {token}",
+        "WM_QOS.CORRELATION_ID": str(random.randint(100000, 999999)),
+        "Authorization": f"Bearer {access_token}",
         "Accept": "application/xml",
         "Content-Type": "application/xml"
     }
-    with open(xml_file, "rb") as f:
-        return requests.post(SUBMIT_FEED_URL, headers=headers, data=f.read())
+    with open(file_path, "rb") as file:
+        response = requests.post(url, headers=headers, data=file.read())
+    if response.status_code != 202:
+        raise Exception(f"Feed submission failed {response.status_code}: {response.text}")
+    return response.text
 
 # Streamlit UI
 st.title("🍼 Shopify to Walmart XML Generator + Submitter")
 st.markdown("Upload your **Shopify Product CSV** below. All variations will be replaced with your master variation set.")
 
 uploaded_file = st.file_uploader("📤 Upload Shopify CSV", type=["csv"])
-
 if uploaded_file is not None:
-    with st.spinner("Generating Walmart XML file..."):
+    with st.spinner("Processing XML..."):
         try:
-            xml_filename = build_walmart_xml(uploaded_file.read())
-            st.success("✅ Walmart XML file generated!")
-            with open(xml_filename, "rb") as f:
-                st.download_button("📥 Download Walmart XML", f, file_name=xml_filename)
+            output_file = build_walmart_xml(uploaded_file.read())
+            with open(output_file, "rb") as f:
+                st.success("✅ Walmart XML file generated!")
+                st.download_button("📥 Download Walmart XML", f, file_name=output_file)
 
             if st.button("🚀 Submit to Walmart API"):
-                with st.spinner("Submitting feed to Walmart Sandbox API..."):
-                    token = get_access_token()
-                    response = submit_to_walmart(xml_filename, token)
-                    if response.status_code == 202:
-                        st.success("✅ Feed submitted successfully!")
-                        st.code(response.text)
-                    else:
-                        st.error(f"❌ Submission failed with status {response.status_code}")
-                        st.code(response.text)
+                with st.spinner("Submitting to Walmart..."):
+                    result = submit_feed_to_walmart(output_file)
+                    st.success("✅ Submitted to Walmart!")
+                    st.code(result)
 
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
